@@ -8,7 +8,9 @@ struct ContentView: View {
         Group {
             if authViewModel.isAuthenticated {
                 RideListView(
+                    authViewModel: authViewModel,
                     onSignOut: authViewModel.signOut
+                    
                 )
             } else {
                 AuthView(viewModel: authViewModel)

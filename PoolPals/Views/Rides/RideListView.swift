@@ -2,38 +2,65 @@
 //  RideListView.swift
 //  PoolPals
 //
-//  Created by Priya Taliyan on 2025-12-30.
-//
-
 
 import SwiftUI
 
 struct RideListView: View {
 
     @StateObject private var viewModel = RideViewModel()
+    @ObservedObject var authViewModel: AuthViewModel
+
     let onSignOut: () -> Void
 
     var body: some View {
-        NavigationView {
-            List(viewModel.rides) { ride in
-                NavigationLink {
-                    RideDetailView(ride: ride)
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(ride.route)
-                            .font(.headline)
+        NavigationStack {
+            List {
 
-                        Text("Seats: \(ride.seatsAvailable)")
-                            .font(.subheadline)
+                // MARK: - My Rides
+                if !viewModel.myRides.isEmpty {
+                    Section("My Rides") {
+                        ForEach(viewModel.myRides) { ride in
+                            NavigationLink {
+                                RideDetailView(
+                                    ride: ride,
+                                    authViewModel: authViewModel
+                                )
 
-                        Text(ride.time, style: .time)
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                            } label: {
+                                RideRowView(ride: ride)
+                            }
+                        }
                     }
+                }
+
+                // MARK: - Other Rides
+                if !viewModel.otherRides.isEmpty {
+                    Section("Other Rides") {
+                        ForEach(viewModel.otherRides) { ride in
+                            NavigationLink {
+                                RideDetailView(
+                                    ride: ride,
+                                    authViewModel: authViewModel
+                                )
+                            } label: {
+                                RideRowView(ride: ride)
+                            }
+                        }
+                    }
+                }
+
+                // MARK: - Empty State
+                if viewModel.myRides.isEmpty && viewModel.otherRides.isEmpty {
+                    ContentUnavailableView(
+                        "No rides available",
+                        systemImage: "car",
+                        description: Text("Post a ride or check back later.")
+                    )
                 }
             }
             .navigationTitle("Available Rides")
             .toolbar {
+
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Sign Out") {
                         onSignOut()
@@ -42,7 +69,9 @@ struct RideListView: View {
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink("Post Ride") {
-                        CreateRideView {
+                        CreateRideView(
+                            ownerName: authViewModel.currentUserName ?? "Unknown"
+                        ) {
                             viewModel.loadRides()
                         }
                     }

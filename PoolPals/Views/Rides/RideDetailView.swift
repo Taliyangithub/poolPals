@@ -1,46 +1,99 @@
+//
+//  RideDetailView.swift
+//  PoolPals
+//
+
 import SwiftUI
+import Dispatch
 
 struct RideDetailView: View {
 
     @StateObject private var viewModel: RideDetailViewModel
-    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var authViewModel: AuthViewModel
 
-    init(ride: Ride) {
+    @Environment(\.dismiss) private var dismiss
+    
+    var currentUserName: String {
+        authViewModel.currentUserName ?? "Unknown"
+    }
+
+    init(ride: Ride, authViewModel: AuthViewModel) {
         _viewModel = StateObject(
             wrappedValue: RideDetailViewModel(ride: ride)
         )
+        self.authViewModel = authViewModel
     }
 
+
     var body: some View {
-        VStack(spacing: 16) {
-            
-            Text(viewModel.ride.route)
-                .font(.title2)
-            
-            Text("Seats available: \(viewModel.ride.seatsAvailable)")
-            Text(viewModel.ride.time, style: .time)
-            
-            if viewModel.isOwner {
-                ownerSection
-            } else {
-                nonOwnerSection
+        NavigationStack {
+            VStack(spacing: 16) {
+
+                // MARK: - Ride Header
+
+                Text(viewModel.ride.route)
+                    .font(.title2)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Posted by: \(viewModel.ride.ownerName)")
+                        .font(.subheadline)
+
+                    Text("Car: \(viewModel.ride.carModel)")
+                        .font(.subheadline)
+
+                    Text("Car Number: \(viewModel.ride.carNumber)")
+                        .font(.subheadline)
+                }
+
+                Divider()
+
+                // MARK: - Ride Info
+
+                Text("Seats available: \(viewModel.ride.seatsAvailable)")
+                Text(viewModel.ride.time, style: .time)
+                
+                // Mark: - Chat
+                
+                NavigationLink("Open Chat") {
+                    RideChatView(
+                        ride: viewModel.ride,
+                        currentUserName: authViewModel.currentUserName ?? "Unknown"
+                    )
+                }
+                .buttonStyle(.bordered)
+
+
+                // MARK: - Actions
+
+                if viewModel.isOwner {
+                    ownerSection
+                } else {
+                    nonOwnerSection
+                }
+
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                        .foregroundColor(.red)
+                }
+
+                Spacer()
             }
-            
-            if let error = viewModel.errorMessage {
-                Text(error)
-                    .foregroundColor(.red)
+            .padding()
+            .navigationTitle("Ride Details")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
             }
-            
-            Spacer()
-        }
-        .padding()
-        .navigationTitle("Ride Details")
-        .onAppear {
-            viewModel.loadRequests()
-        }
-        .onChange(of: viewModel.rideDeleted) { _, deleted in
-            if deleted {
-                dismiss()
+            .onAppear {
+                viewModel.loadRequests()
+            }
+            .onChange(of: viewModel.rideDeleted) { _, deleted in
+                if deleted {
+                    dismiss()
+                }
             }
         }
     }
@@ -53,8 +106,7 @@ struct RideDetailView: View {
                 Text("No seats available")
                     .foregroundColor(.gray)
             }
-            else if let status = viewModel.userRequestStatus,
-                    let requestId = viewModel.userRequestId {
+            else if let status = viewModel.userRequestStatus {
 
                 VStack(spacing: 8) {
                     Text("Request status: \(status.rawValue.capitalized)")
@@ -62,7 +114,7 @@ struct RideDetailView: View {
 
                     if status == .pending {
                         Button("Withdraw Request") {
-                            viewModel.withdrawRequest(requestId: requestId)
+                            viewModel.withdrawRequest()
                         }
                     }
                 }
@@ -103,7 +155,7 @@ struct RideDetailView: View {
                         }
                     } else if request.status == .approved {
                         Button("Remove") {
-                            viewModel.withdrawRequest(requestId: request.id)
+                            viewModel.withdrawRequest()
                         }
                     } else {
                         Text(request.status.rawValue.capitalized)
@@ -111,7 +163,7 @@ struct RideDetailView: View {
                     }
                 }
             }
+            .frame(minHeight: 150)
         }
     }
 }
-

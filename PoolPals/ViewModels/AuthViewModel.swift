@@ -1,18 +1,48 @@
+//
+//  AuthViewModel.swift
+//  PoolPals
+//
+
 import Foundation
 import FirebaseAuth
 import Combine
 
 final class AuthViewModel: ObservableObject {
-    
+
     @Published var isAuthenticated: Bool = false
     @Published var errorMessage: String?
-    
+    @Published var currentUserName: String?
+
+    private var authListener: AuthStateDidChangeListenerHandle?
+
     init() {
-        self.isAuthenticated = Auth.auth().currentUser != nil
+        observeAuthState()
     }
-    
+
+    deinit {
+        if let listener = authListener {
+            Auth.auth().removeStateDidChangeListener(listener)
+        }
+    }
+
+    // MARK: - Observe Auth State
+
+    private func observeAuthState() {
+        authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            DispatchQueue.main.async {
+                if user != nil {
+                    self?.isAuthenticated = true
+                    self?.loadCurrentUserProfile()
+                } else {
+                    self?.isAuthenticated = false
+                    self?.currentUserName = nil
+                }
+            }
+        }
+    }
+
     // MARK: - Sign Up
-    
+
     func signUp(email: String, password: String, name: String) {
         AuthService.shared.signUp(
             email: email,
@@ -22,26 +52,38 @@ final class AuthViewModel: ObservableObject {
             DispatchQueue.main.async {
                 switch result {
                 case .success:
-                    self?.isAuthenticated = true
                     self?.errorMessage = nil
+                    self?.loadCurrentUserProfile()
                 case .failure(let error):
                     self?.errorMessage = error.localizedDescription
                 }
             }
         }
     }
-    
+
     // MARK: - Sign In
-    
+
     func signIn(email: String, password: String) {
         AuthService.shared.signIn(
             email: email,
             password: password
         ) { [weak self] result in
             DispatchQueue.main.async {
+                if case let .failure(error) = result {
+                    self?.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    // MARK: - Load Current User Profile
+
+    private func loadCurrentUserProfile() {
+        AuthService.shared.fetchCurrentUser { [weak self] result in
+            DispatchQueue.main.async {
                 switch result {
-                case .success:
-                    self?.isAuthenticated = true
+                case .success(let user):
+                    self?.currentUserName = user.name
                     self?.errorMessage = nil
                 case .failure(let error):
                     self?.errorMessage = error.localizedDescription
@@ -49,13 +91,12 @@ final class AuthViewModel: ObservableObject {
             }
         }
     }
-    
+
     // MARK: - Sign Out
-    
+
     func signOut() {
         do {
             try AuthService.shared.signOut()
-            isAuthenticated = false
         } catch {
             errorMessage = error.localizedDescription
         }

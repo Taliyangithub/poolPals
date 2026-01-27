@@ -2,11 +2,9 @@
 //  CreateRideView.swift
 //  PoolPals
 //
-//  Created by Priya Taliyan on 2025-12-31.
-//
-
 
 import SwiftUI
+import Dispatch
 
 struct CreateRideView: View {
 
@@ -15,59 +13,94 @@ struct CreateRideView: View {
     @State private var route: String = ""
     @State private var time: Date = Date()
     @State private var seatsAvailable: Int = 1
+
+    @State private var carNumber: String = ""
+    @State private var carModel: String = ""
+
     @State private var errorMessage: String?
 
+    let ownerName: String
     let onRideCreated: () -> Void
 
     var body: some View {
-        Form {
+        NavigationStack {
+            Form {
 
-            Section(header: Text("Route")) {
-                TextField("Enter route", text: $route)
-            }
+                // MARK: - Route
+                Section(header: Text("Route")) {
+                    TextField("Enter route", text: $route)
+                }
 
-            Section(header: Text("Time")) {
-                DatePicker(
-                    "Departure Time",
-                    selection: $time,
-                    displayedComponents: .hourAndMinute
+                // MARK: - Time
+                Section(header: Text("Time")) {
+                    DatePicker(
+                        "Departure Time",
+                        selection: $time,
+                        displayedComponents: .hourAndMinute
+                    )
+                }
+
+                // MARK: - Seats
+                Section(header: Text("Seats")) {
+                    Stepper(value: $seatsAvailable, in: 1...6) {
+                        Text("Seats Available: \(seatsAvailable)")
+                    }
+                }
+
+                // MARK: - Car Details
+                Section(header: Text("Car Details")) {
+                    TextField("Car Model", text: $carModel)
+                    TextField("Car Number", text: $carNumber)
+                }
+
+                // MARK: - Error
+                if let error = errorMessage {
+                    Text(error)
+                        .foregroundColor(.red)
+                }
+
+                // MARK: - Submit
+                Button("Post Ride") {
+                    createRide()
+                }
+                .disabled(
+                    route.isEmpty ||
+                    carModel.isEmpty ||
+                    carNumber.isEmpty
                 )
             }
-
-            Section(header: Text("Seats")) {
-                Stepper(value: $seatsAvailable, in: 1...6) {
-                    Text("Seats Available: \(seatsAvailable)")
+            .navigationTitle("Post Ride")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
                 }
             }
-
-            if let error = errorMessage {
-                Text(error)
-                    .foregroundColor(.red)
-            }
-
-            Button("Post Ride") {
-                createRide()
-            }
-            .disabled(route.isEmpty)
         }
-        .navigationTitle("Post Ride")
     }
+
+    // MARK: - Create Ride
 
     private func createRide() {
         RideService.shared.createRide(
             route: route,
             time: time,
-            seatsAvailable: seatsAvailable
+            seatsAvailable: seatsAvailable,
+            carNumber: carNumber,
+            carModel: carModel,
+            ownerName: ownerName
         ) { result in
-            DispatchQueue.main.async {
+            DispatchQueue.main.async(execute: {
                 switch result {
                 case .success:
+                    errorMessage = nil
                     onRideCreated()
                     dismiss()
                 case .failure(let error):
                     errorMessage = error.localizedDescription
                 }
-            }
+            })
         }
     }
 }

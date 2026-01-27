@@ -1,28 +1,45 @@
+//
+//  RideDetailViewModel.swift
+//  PoolPals
+//
+
 import Foundation
 import Combine
 import FirebaseAuth
-import FirebaseFirestore
+import Dispatch
 
 final class RideDetailViewModel: ObservableObject {
+
+    // MARK: - Published State
 
     @Published var requests: [RideRequest] = []
     @Published var errorMessage: String?
     @Published var userRequestStatus: RideRequestStatus?
     @Published var userRequestId: String?
+    @Published var rideDeleted: Bool = false
+
+    // MARK: - Properties
 
     let ride: Ride
-    private let currentUserId = Auth.auth().currentUser?.uid
+
+    private var currentUserId: String? {
+        Auth.auth().currentUser?.uid
+    }
+
+    // MARK: - Init
 
     init(ride: Ride) {
         self.ride = ride
         loadUserRequest()
     }
 
+    // MARK: - Computed
+
     var isOwner: Bool {
         ride.ownerId == currentUserId
     }
 
-    // MARK: - User actions
+    // MARK: - User Actions
 
     func requestToJoin() {
         RideService.shared.requestToJoinRide(rideId: ride.id) { [weak self] result in
@@ -37,7 +54,9 @@ final class RideDetailViewModel: ObservableObject {
         }
     }
 
-    func withdrawRequest(requestId: String) {
+    func withdrawRequest() {
+        guard let requestId = userRequestId else { return }
+
         RideService.shared.withdrawRequest(
             rideId: ride.id,
             requestId: requestId
@@ -55,15 +74,18 @@ final class RideDetailViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Owner actions
+    // MARK: - Owner Actions
 
     func loadRequests() {
         guard isOwner else { return }
 
         RideService.shared.fetchRequests(rideId: ride.id) { [weak self] result in
             DispatchQueue.main.async {
-                if case .success(let requests) = result {
+                switch result {
+                case .success(let requests):
                     self?.loadUserNames(for: requests)
+                case .failure(let error):
+                    self?.errorMessage = error.localizedDescription
                 }
             }
         }
@@ -73,8 +95,12 @@ final class RideDetailViewModel: ObservableObject {
         RideService.shared.approveRequest(
             rideId: ride.id,
             requestId: requestId
-        ) { [weak self] _ in
-            self?.loadRequests()
+        ) { [weak self] result in
+            DispatchQueue.main.async {
+                if case .success = result {
+                    self?.loadRequests()
+                }
+            }
         }
     }
 
@@ -93,31 +119,28 @@ final class RideDetailViewModel: ObservableObject {
             }
         }
     }
+
     private func loadUserNames(for requests: [RideRequest]) {
         let group = DispatchGroup()
-        var updated = requests
+        var updatedRequests = requests
 
-        for index in updated.indices {
+        for index in updatedRequests.indices {
             group.enter()
-            let userId = updated[index].userId
 
-            Firestore.firestore()
-                .collection("users")
-                .document(userId)
-                .getDocument { snapshot, _ in
-                    if let name = snapshot?.data()?["name"] as? String {
-                        updated[index].userName = name
-                    }
-                    group.leave()
-                }
+            AuthService.shared.fetchUserName(
+                userId: updatedRequests[index].userId
+            ) { name in
+                updatedRequests[index].userName = name
+                group.leave()
+            }
         }
 
         group.notify(queue: .main) {
-            self.requests = updated
+            self.requests = updatedRequests
         }
     }
-    
-    @Published var rideDeleted = false
+
+    // MARK: - Delete Ride
 
     func deleteRide() {
         RideService.shared.deleteRide(rideId: ride.id) { [weak self] result in
@@ -131,7 +154,4 @@ final class RideDetailViewModel: ObservableObject {
             }
         }
     }
-
-
-
 }

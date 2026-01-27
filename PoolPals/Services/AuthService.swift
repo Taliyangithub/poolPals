@@ -27,7 +27,6 @@ final class AuthService {
         auth.createUser(withEmail: email, password: password) { result, error in
 
             if let error = error {
-                print("🔥 FIREBASE SIGNUP ERROR:", error.localizedDescription)
                 completion(.failure(error))
                 return
             }
@@ -45,11 +44,9 @@ final class AuthService {
             self.db.collection("users")
                 .document(userId)
                 .setData(userData) { error in
-                    if let error = error {
-                        completion(.failure(error))
-                    } else {
-                        completion(.success(()))
-                    }
+                    error == nil
+                        ? completion(.success(()))
+                        : completion(.failure(error!))
                 }
         }
     }
@@ -62,12 +59,9 @@ final class AuthService {
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         auth.signIn(withEmail: email, password: password) { _, error in
-            if let error = error {
-                print("🔥 FIREBASE SIGNIN ERROR:", error.localizedDescription)
-                completion(.failure(error))
-            } else {
-                completion(.success(()))
-            }
+            error == nil
+                ? completion(.success(()))
+                : completion(.failure(error!))
         }
     }
 
@@ -82,5 +76,56 @@ final class AuthService {
     func currentUserId() -> String? {
         auth.currentUser?.uid
     }
-}
 
+    // MARK: - Fetch Current User Profile
+
+    func fetchCurrentUser(
+        completion: @escaping (Result<AppUser, Error>) -> Void
+    ) {
+        guard let uid = auth.currentUser?.uid else {
+            completion(.failure(NSError(domain: "AuthError", code: -1)))
+            return
+        }
+
+        db.collection("users")
+            .document(uid)
+            .getDocument { snapshot, error in
+
+                if let error = error {
+                    completion(.failure(error))
+                    return
+                }
+
+                guard
+                    let data = snapshot?.data(),
+                    let email = data["email"] as? String,
+                    let name = data["name"] as? String
+                else {
+                    completion(.failure(NSError(domain: "UserParseError", code: -1)))
+                    return
+                }
+
+                completion(
+                    .success(
+                        AppUser(
+                            id: uid,
+                            email: email,
+                            name: name
+                        )
+                    )
+                )
+            }
+    }
+    
+    func fetchUserName(
+        userId: String,
+        completion: @escaping (String?) -> Void
+    ) {
+        db.collection("users")
+            .document(userId)
+            .getDocument { snapshot, _ in
+                let name = snapshot?.data()?["name"] as? String
+                completion(name)
+            }
+    }
+}
