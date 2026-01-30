@@ -6,6 +6,9 @@ struct RideListView: View {
     @StateObject private var viewModel = RideViewModel()
     @ObservedObject var authViewModel: AuthViewModel
 
+    // Pending requests flag
+    @State private var hasPendingRequests = false
+
     // Safety Notice
     @AppStorage("hasSeenSafetyNotice") private var hasSeenSafetyNotice = false
     @State private var showSafetyNotice = false
@@ -38,11 +41,18 @@ struct RideListView: View {
             .navigationTitle("My Rides")
             .toolbar {
 
-                // Actions Menu (Apple-style)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
+
                         NavigationLink("Search") {
                             RideSearchView(authViewModel: authViewModel)
+                        }
+
+            
+                        if hasPendingRequests {
+                            NavigationLink("Pending Requests") {
+                                PendingRequestsView()
+                            }
                         }
 
                         NavigationLink("Post Ride") {
@@ -50,6 +60,7 @@ struct RideListView: View {
                                 ownerName: authViewModel.currentUserName ?? "Unknown"
                             ) {
                                 viewModel.loadRides()
+                                loadPendingFlag()
                             }
                         }
 
@@ -66,8 +77,8 @@ struct RideListView: View {
             }
             .onAppear {
                 viewModel.loadRides()
+                loadPendingFlag()
 
-                // Show safety notice once per install
                 if !hasSeenSafetyNotice {
                     showSafetyNotice = true
                 }
@@ -78,6 +89,19 @@ struct RideListView: View {
                     showSafetyNotice = false
                 }
             }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func loadPendingFlag() {
+        guard let uid = authViewModel.currentUserName != nil
+                ? AuthService.shared.currentUserId()
+                : nil
+        else { return }
+
+        RideService.shared.hasActivePendingRequests(userId: uid) { hasPending in
+            self.hasPendingRequests = hasPending
         }
     }
 }

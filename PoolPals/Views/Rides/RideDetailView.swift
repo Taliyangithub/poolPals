@@ -150,11 +150,10 @@ struct RideDetailView: View {
                 Text("Request status: \(status.rawValue.capitalized)")
                     .foregroundColor(.secondary)
 
-                if status == .pending {
                     Button("Withdraw Request") {
                         viewModel.withdrawRequest()
                     }
-                }
+             
             } else {
                 Button("Request to Join") {
                     viewModel.requestToJoin()
@@ -190,7 +189,14 @@ struct RideDetailView: View {
                                 Button("Approve") {
                                     viewModel.approve(requestId: request.id)
                                 }
-                            } else {
+                            } else if request.status == .approved {
+                                Button(role: .destructive) {
+                                    viewModel.removeRider(requestId: request.id)
+                                } label: {
+                                    Text("Remove")
+                                }
+                            }
+                            else {
                                 Text(request.status.rawValue.capitalized)
                                     .foregroundColor(.secondary)
                             }

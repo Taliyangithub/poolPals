@@ -116,27 +116,27 @@ final class RideService {
             .collection("requests")
             .getDocuments { snapshot, error in
 
-                if let error = error {
+                if let error {
                     completion(.failure(error))
                     return
                 }
 
-                let requests: [RideRequest] = snapshot?.documents.compactMap { doc in
+                let requests = snapshot?.documents.compactMap { doc -> RideRequest? in
                     let data = doc.data()
 
                     guard
                         let userId = data["userId"] as? String,
                         let rawStatus = data["status"] as? String,
                         let status = RideRequestStatus(rawValue: rawStatus)
-                    else {
-                        return nil
-                    }
+                    else { return nil }
+
+                    let userName = data["userName"] as? String
 
                     return RideRequest(
                         id: doc.documentID,
                         userId: userId,
                         status: status,
-                        userName: nil
+                        userName: userName
                     )
                 } ?? []
 
@@ -144,8 +144,9 @@ final class RideService {
             }
     }
 
-    // Fetch Current User Request
 
+    // Fetch Current User Request
+    
     func fetchUserRequest(
         rideId: String,
         userId: String,
@@ -166,16 +167,19 @@ final class RideService {
                     return
                 }
 
+                let userName = doc.data()["userName"] as? String
+
                 completion(
                     RideRequest(
                         id: doc.documentID,
                         userId: userId,
                         status: status,
-                        userName: nil
+                        userName: userName
                     )
                 )
             }
     }
+
 
 
     // Approve Request
@@ -353,27 +357,27 @@ final class RideService {
         rideId: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        guard let userId = Auth.auth().currentUser?.uid else {
+        guard let user = Auth.auth().currentUser else {
             completion(.failure(NSError(domain: "AuthError", code: -1)))
             return
         }
 
+        let userId = user.uid
         let requestsRef = db
             .collection("rides")
             .document(rideId)
             .collection("requests")
 
-        // Prevent duplicate requests by same user
         requestsRef
             .whereField("userId", isEqualTo: userId)
             .getDocuments { snapshot, error in
 
-                if let error = error {
+                if let error {
                     completion(.failure(error))
                     return
                 }
 
-                if let snapshot = snapshot, !snapshot.documents.isEmpty {
+                if let snapshot, !snapshot.documents.isEmpty {
                     completion(
                         .failure(
                             NSError(
@@ -389,18 +393,22 @@ final class RideService {
                     return
                 }
 
-                let data: [String: Any] = [
-                    "userId": userId,
-                    "status": RideRequestStatus.pending.rawValue
-                ]
+                AuthService.shared.fetchUserName(userId: userId) { name in
+                    let data: [String: Any] = [
+                        "userId": userId,
+                        "userName": name ?? "Unknown",
+                        "status": RideRequestStatus.pending.rawValue
+                    ]
 
-                requestsRef.addDocument(data: data) { error in
-                    error == nil
-                        ? completion(.success(()))
-                        : completion(.failure(error!))
+                    requestsRef.addDocument(data: data) { error in
+                        error == nil
+                            ? completion(.success(()))
+                            : completion(.failure(error!))
+                    }
                 }
             }
     }
+
     
     // Send Message (Ride Chat)
 
@@ -655,7 +663,174 @@ final class RideService {
         }
     }
 
+    // Remove user from ride (used by rider OR owner)
+    func removeUserFromRide(
+        rideId: String,
+        requestId: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let rideRef = db.collection("rides").document(rideId)
+        let requestRef = rideRef.collection("requests").document(requestId)
 
+        db.runTransaction({ transaction, errorPointer in
+
+            let rideSnap: DocumentSnapshot
+            let requestSnap: DocumentSnapshot
+
+            do {
+                rideSnap = try transaction.getDocument(rideRef)
+                requestSnap = try transaction.getDocument(requestRef)
+            } catch {
+                errorPointer?.pointee = error as NSError
+                return nil
+            }
+
+            let status = requestSnap.data()?["status"] as? String
+            let seats = rideSnap.data()?["seatsAvailable"] as? Int ?? 0
+            let userId = requestSnap.data()?["userId"] as? String
+
+            // Restore seat ONLY if approved
+            if status == RideRequestStatus.approved.rawValue {
+                transaction.updateData(
+                    ["seatsAvailable": seats + 1],
+                    forDocument: rideRef
+                )
+
+                if let userId {
+                    let joinedRideRef = self.db
+                        .collection("users")
+                        .document(userId)
+                        .collection("joinedRides")
+                        .document(rideId)
+
+                    transaction.deleteDocument(joinedRideRef)
+                }
+            }
+
+            // Delete the request
+            transaction.deleteDocument(requestRef)
+
+            return nil
+
+        }) { _, error in
+            error == nil
+                ? completion(.success(()))
+                : completion(.failure(error!))
+        }
+    }
+
+
+    func fetchPendingRequests(
+        userId: String,
+        completion: @escaping ([PendingRideRequest]) -> Void
+    ) {
+        db.collection("rides").getDocuments { snapshot, _ in
+            guard let rideDocs = snapshot?.documents else {
+                completion([])
+                return
+            }
+
+            let group = DispatchGroup()
+            var results: [PendingRideRequest] = []
+
+            for rideDoc in rideDocs {
+                let rideId = rideDoc.documentID
+                let rideData = rideDoc.data()
+
+                guard
+                    let ownerId = rideData["ownerId"] as? String,
+                    let ownerName = rideData["ownerName"] as? String,
+                    let route = rideData["route"] as? String,
+                    let startLocationName = rideData["startLocationName"] as? String,
+                    let endLocationName = rideData["endLocationName"] as? String,
+                    let startLatitude = rideData["startLatitude"] as? Double,
+                    let startLongitude = rideData["startLongitude"] as? Double,
+                    let startDateTime = (rideData["time"] as? Timestamp)?.dateValue(),
+                    let seats = rideData["seatsAvailable"] as? Int,
+                    let carNumber = rideData["carNumber"] as? String,
+                    let carModel = rideData["carModel"] as? String
+                else { continue }
+
+                let ride = Ride(
+                    id: rideId,
+                    ownerId: ownerId,
+                    ownerName: ownerName,
+                    route: route,
+                    startLocationName: startLocationName,
+                    endLocationName: endLocationName,
+                    startLatitude: startLatitude,
+                    startLongitude: startLongitude,
+                    startDateTime: startDateTime,
+                    seatsAvailable: seats,
+                    carNumber: carNumber,
+                    carModel: carModel
+                )
+
+                group.enter()
+                rideDoc.reference
+                    .collection("requests")
+                    .whereField("userId", isEqualTo: userId)
+                    .whereField("status", isEqualTo: RideRequestStatus.pending.rawValue)
+                    .getDocuments { reqSnapshot, _ in
+
+                        if let doc = reqSnapshot?.documents.first {
+                            results.append(
+                                PendingRideRequest(
+                                    id: doc.documentID,
+                                    rideId: rideId,
+                                    ride: ride
+                                )
+                            )
+                        }
+                        group.leave()
+                    }
+            }
+
+            group.notify(queue: .main) {
+                completion(results)
+            }
+        }
+    }
+    
+    func hasActivePendingRequests(
+        userId: String,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let now = Date()
+
+        db.collection("rides")
+            .whereField("time", isGreaterThan: now)
+            .getDocuments { snapshot, _ in
+
+                guard let rides = snapshot?.documents else {
+                    completion(false)
+                    return
+                }
+
+                let group = DispatchGroup()
+                var hasPending = false
+
+                for ride in rides {
+                    group.enter()
+
+                    ride.reference
+                        .collection("requests")
+                        .whereField("userId", isEqualTo: userId)
+                        .whereField("status", isEqualTo: RideRequestStatus.pending.rawValue)
+                        .limit(to: 1)
+                        .getDocuments { reqSnap, _ in
+                            if let reqSnap, !reqSnap.isEmpty {
+                                hasPending = true
+                            }
+                            group.leave()
+                        }
+                }
+
+                group.notify(queue: .main) {
+                    completion(hasPending)
+                }
+            }
+    }
 
 
 
