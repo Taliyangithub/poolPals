@@ -1,14 +1,14 @@
-//
-//  RideListView.swift
-//  PoolPals
-//
-
 import SwiftUI
 
 struct RideListView: View {
 
+    // ViewModels
     @StateObject private var viewModel = RideViewModel()
     @ObservedObject var authViewModel: AuthViewModel
+
+    // Safety Notice
+    @AppStorage("hasSeenSafetyNotice") private var hasSeenSafetyNotice = false
+    @State private var showSafetyNotice = false
 
     let onSignOut: () -> Void
 
@@ -16,69 +16,67 @@ struct RideListView: View {
         NavigationStack {
             List {
 
-                // MARK: - My Rides
-                if !viewModel.myRides.isEmpty {
-                    Section("My Rides") {
-                        ForEach(viewModel.myRides) { ride in
-                            NavigationLink {
-                                RideDetailView(
-                                    ride: ride,
-                                    authViewModel: authViewModel
-                                )
-
-                            } label: {
-                                RideRowView(ride: ride)
-                            }
-                        }
-                    }
-                }
-
-                // MARK: - Other Rides
-                if !viewModel.otherRides.isEmpty {
-                    Section("Other Rides") {
-                        ForEach(viewModel.otherRides) { ride in
-                            NavigationLink {
-                                RideDetailView(
-                                    ride: ride,
-                                    authViewModel: authViewModel
-                                )
-                            } label: {
-                                RideRowView(ride: ride)
-                            }
-                        }
-                    }
-                }
-
-                // MARK: - Empty State
-                if viewModel.myRides.isEmpty && viewModel.otherRides.isEmpty {
+                if viewModel.visibleRides.isEmpty {
                     ContentUnavailableView(
                         "No rides available",
                         systemImage: "car",
-                        description: Text("Post a ride or check back later.")
+                        description: Text("Create a ride or join one.")
                     )
-                }
-            }
-            .navigationTitle("Available Rides")
-            .toolbar {
-
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Sign Out") {
-                        onSignOut()
+                } else {
+                    ForEach(viewModel.visibleRides) { ride in
+                        NavigationLink {
+                            RideDetailView(
+                                ride: ride,
+                                authViewModel: authViewModel
+                            )
+                        } label: {
+                            RideRowView(ride: ride)
+                        }
                     }
                 }
+            }
+            .navigationTitle("My Rides")
+            .toolbar {
 
+                // Actions Menu (Apple-style)
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink("Post Ride") {
-                        CreateRideView(
-                            ownerName: authViewModel.currentUserName ?? "Unknown"
-                        ) {
-                            viewModel.loadRides()
+                    Menu {
+                        NavigationLink("Search") {
+                            RideSearchView(authViewModel: authViewModel)
                         }
+
+                        NavigationLink("Post Ride") {
+                            CreateRideView(
+                                ownerName: authViewModel.currentUserName ?? "Unknown"
+                            ) {
+                                viewModel.loadRides()
+                            }
+                        }
+
+                        NavigationLink("Settings") {
+                            SettingsView(
+                                authViewModel: authViewModel,
+                                onSignOut: onSignOut
+                            )
+                        }
+                    } label: {
+                        Image(systemName: "gearshape")
                     }
                 }
             }
             .onAppear {
                 viewModel.loadRides()
+
+                // Show safety notice once per install
+                if !hasSeenSafetyNotice {
+                    showSafetyNotice = true
+                }
+            }
+            .sheet(isPresented: $showSafetyNotice) {
+                SafetyNoticeView {
+                    hasSeenSafetyNotice = true
+                    showSafetyNotice = false
+                }
             }
         }
     }

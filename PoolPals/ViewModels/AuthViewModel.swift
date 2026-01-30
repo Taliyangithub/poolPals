@@ -25,7 +25,7 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Observe Auth State
+    // Observe Auth State
 
     private func observeAuthState() {
         authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
@@ -41,7 +41,7 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Sign Up
+    // Sign Up
 
     func signUp(email: String, password: String, name: String) {
         AuthService.shared.signUp(
@@ -61,7 +61,7 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Sign In
+    // Sign In
 
     func signIn(email: String, password: String) {
         AuthService.shared.signIn(
@@ -76,7 +76,7 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Load Current User Profile
+    // Load Current User Profile
 
     private func loadCurrentUserProfile() {
         AuthService.shared.fetchCurrentUser { [weak self] result in
@@ -92,7 +92,7 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Sign Out
+    // Sign Out
 
     func signOut() {
         do {
@@ -101,4 +101,20 @@ final class AuthViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
     }
+    
+    func deleteAccountAndSignOut() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+
+        RideService.shared.deleteAccount(userId: uid) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    AuthService.shared.deleteAuthUser { _ in }
+                case .failure(let error):
+                    self?.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
 }

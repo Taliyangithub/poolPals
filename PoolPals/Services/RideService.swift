@@ -14,11 +14,11 @@ final class RideService {
 
     private init() {}
 
-    // MARK: - Create Ride
+    // Create Ride
 
     func createRide(
         route: String,
-        time: Date,
+        startDateTime: Date,
         seatsAvailable: Int,
         carNumber: String,
         carModel: String,
@@ -38,7 +38,7 @@ final class RideService {
             "ownerId": userId,
             "ownerName": ownerName,
             "route": route,
-            "time": Timestamp(date: time),
+            "time": Timestamp(date: startDateTime),
             "seatsAvailable": max(seatsAvailable, 0),
             "carNumber": carNumber,
             "carModel": carModel,
@@ -53,8 +53,7 @@ final class RideService {
         }
     }
 
-    // MARK: - Fetch Rides
-
+    // Fetch Rides
     func fetchRides(
         completion: @escaping (Result<[Ride], Error>) -> Void
     ) {
@@ -78,7 +77,7 @@ final class RideService {
                         let endLocationName = data["endLocationName"] as? String,
                         let startLatitude = data["startLatitude"] as? Double,
                         let startLongitude = data["startLongitude"] as? Double,
-                        let time = (data["time"] as? Timestamp)?.dateValue(),
+                        let startDateTime = (data["time"] as? Timestamp)?.dateValue(),
                         let seats = data["seatsAvailable"] as? Int,
                         let carNumber = data["carNumber"] as? String,
                         let carModel = data["carModel"] as? String
@@ -95,7 +94,7 @@ final class RideService {
                         endLocationName: endLocationName,
                         startLatitude: startLatitude,
                         startLongitude: startLongitude,
-                        time: time,
+                        startDateTime: startDateTime,
                         seatsAvailable: seats,
                         carNumber: carNumber,
                         carModel: carModel
@@ -106,7 +105,7 @@ final class RideService {
             }
     }
 
-    // MARK: - Fetch Requests (OWNER) ✅ RESTORED
+    // Fetch Requests (OWNER)
 
     func fetchRequests(
         rideId: String,
@@ -145,7 +144,7 @@ final class RideService {
             }
     }
 
-    // MARK: - Fetch Current User Request
+    // Fetch Current User Request
 
     func fetchUserRequest(
         rideId: String,
@@ -179,7 +178,7 @@ final class RideService {
     }
 
 
-    // MARK: - Approve Request
+    // Approve Request
 
     func approveRequest(
         rideId: String,
@@ -192,13 +191,17 @@ final class RideService {
         db.runTransaction({ transaction, errorPointer in
 
             let rideSnap: DocumentSnapshot
+            let requestSnap: DocumentSnapshot
+
             do {
                 rideSnap = try transaction.getDocument(rideRef)
+                requestSnap = try transaction.getDocument(requestRef)
             } catch {
                 errorPointer?.pointee = error as NSError
                 return nil
             }
 
+            // Validate seats
             guard
                 let seats = rideSnap.data()?["seatsAvailable"] as? Int,
                 seats > 0
@@ -211,14 +214,38 @@ final class RideService {
                 return nil
             }
 
+            // Get approved userId
+            guard let userId = requestSnap.data()?["userId"] as? String else {
+                errorPointer?.pointee = NSError(
+                    domain: "RideError",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid request data"]
+                )
+                return nil
+            }
+
+            // 1. Decrement seat count
             transaction.updateData(
                 ["seatsAvailable": seats - 1],
                 forDocument: rideRef
             )
 
+            // 2. Approve request
             transaction.updateData(
                 ["status": RideRequestStatus.approved.rawValue],
                 forDocument: requestRef
+            )
+
+            // 3. Mark ride as joined for user
+            let joinedRideRef = self.db
+                .collection("users")
+                .document(userId)
+                .collection("joinedRides")
+                .document(rideId)
+
+            transaction.setData(
+                ["joinedAt": FieldValue.serverTimestamp()],
+                forDocument: joinedRideRef
             )
 
             return nil
@@ -231,7 +258,8 @@ final class RideService {
             }
         }
     }
-    // MARK: - Withdraw Request
+
+    // Withdraw Request
     func withdrawRequest(
         rideId: String,
         requestId: String,
@@ -255,28 +283,36 @@ final class RideService {
 
             let status = requestSnap.data()?["status"] as? String
             let seats = rideSnap.data()?["seatsAvailable"] as? Int ?? 0
+            let userId = requestSnap.data()?["userId"] as? String
 
             if status == RideRequestStatus.approved.rawValue {
                 transaction.updateData(
                     ["seatsAvailable": seats + 1],
                     forDocument: rideRef
                 )
+
+                if let userId {
+                    let joinedRideRef = self.db
+                        .collection("users")
+                        .document(userId)
+                        .collection("joinedRides")
+                        .document(rideId)
+
+                    transaction.deleteDocument(joinedRideRef)
+                }
             }
 
             transaction.deleteDocument(requestRef)
             return nil
 
         }) { _, error in
-            if let error = error {
-                completion(.failure(error))
-            } else {
-                completion(.success(()))
-            }
+            error == nil ? completion(.success(())) : completion(.failure(error!))
         }
     }
 
 
-    // MARK: - Delete Ride
+
+    // Delete Ride
 
     func deleteRide(
         rideId: String,
@@ -294,6 +330,16 @@ final class RideService {
             let batch = self.db.batch()
             snapshot?.documents.forEach { batch.deleteDocument($0.reference) }
             batch.deleteDocument(rideRef)
+            
+            let usersRef = self.db.collection("users")
+            usersRef.getDocuments { usersSnapshot, _ in
+                usersSnapshot?.documents.forEach { userDoc in
+                    let joinedRideRef = userDoc.reference
+                        .collection("joinedRides")
+                        .document(rideId)
+                    batch.deleteDocument(joinedRideRef)
+                }
+            }
 
             batch.commit { error in
                 error == nil ? completion(.success(())) : completion(.failure(error!))
@@ -301,7 +347,7 @@ final class RideService {
         }
     }
     
-    // MARK: - Request to Join Ride (Duplicate Safe)
+    // Request to Join Ride (Duplicate Safe)
 
     func requestToJoinRide(
         rideId: String,
@@ -356,7 +402,7 @@ final class RideService {
             }
     }
     
-    // MARK: - Send Message (Ride Chat)
+    // Send Message (Ride Chat)
 
     func sendMessage(
         rideId: String,
@@ -383,6 +429,234 @@ final class RideService {
                 completion?(error)
             }
     }
+    
+    // Fetched joined Rides
+    func fetchJoinedRideIds(
+        userId: String,
+        completion: @escaping ([String]) -> Void
+    ) {
+        db.collection("users")
+            .document(userId)
+            .collection("joinedRides")
+            .getDocuments { snapshot, _ in
+                let ids = snapshot?.documents.map { $0.documentID } ?? []
+                completion(ids)
+            }
+    }
+    
+    // Search Ride
+    
+    func searchRides(
+        start: String,
+        end: String,
+        from: Date?,
+        to: Date?,
+        completion: @escaping ([Ride]) -> Void
+    ) {
+        var query = db.collection("rides").order(by: "time")
+
+        if let from {
+            query = query.whereField("time", isGreaterThanOrEqualTo: from)
+        }
+
+        if let to {
+            query = query.whereField("time", isLessThanOrEqualTo: to)
+        }
+
+        query.getDocuments { snapshot, _ in
+            let rides = snapshot?.documents.compactMap { doc -> Ride? in
+                let data = doc.data()
+
+                guard
+                    let ownerId = data["ownerId"] as? String,
+                    let ownerName = data["ownerName"] as? String,
+                    let route = data["route"] as? String,
+                    let startLocationName = data["startLocationName"] as? String,
+                    let endLocationName = data["endLocationName"] as? String,
+                    let startLatitude = data["startLatitude"] as? Double,
+                    let startLongitude = data["startLongitude"] as? Double,
+                    let startDateTime = (data["time"] as? Timestamp)?.dateValue(),
+                    let seats = data["seatsAvailable"] as? Int,
+                    let carNumber = data["carNumber"] as? String,
+                    let carModel = data["carModel"] as? String
+                else { return nil }
+
+                return Ride(
+                    id: doc.documentID,
+                    ownerId: ownerId,
+                    ownerName: ownerName,
+                    route: route,
+                    startLocationName: startLocationName,
+                    endLocationName: endLocationName,
+                    startLatitude: startLatitude,
+                    startLongitude: startLongitude,
+                    startDateTime: startDateTime,
+                    seatsAvailable: seats,
+                    carNumber: carNumber,
+                    carModel: carModel
+                )
+            } ?? []
+
+            completion(
+                rides.filter {
+                    (start.isEmpty || $0.startLocationName.localizedCaseInsensitiveContains(start)) &&
+                    (end.isEmpty || $0.endLocationName.localizedCaseInsensitiveContains(end))
+                }
+            )
+        }
+    }
+
+    
+    func deleteAccount(
+        userId: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let userRef = db.collection("users").document(userId)
+
+        userRef.collection("joinedRides").getDocuments { snapshot, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+
+            let joinedRideIds = snapshot?.documents.map { $0.documentID } ?? []
+
+            let group = DispatchGroup()
+
+            for rideId in joinedRideIds {
+                group.enter()
+
+                self.handleSeatCleanup(
+                    rideId: rideId,
+                    userId: userId
+                ) {
+                    group.leave()
+                }
+            }
+
+            group.notify(queue: .main) {
+                // Delete user Firestore document
+                userRef.delete { error in
+                    if let error = error {
+                        completion(.failure(error))
+                    } else {
+                        completion(.success(()))
+                    }
+                }
+            }
+        }
+    }
+
+    private func handleSeatCleanup(
+        rideId: String,
+        userId: String,
+        completion: @escaping () -> Void
+    ) {
+        let rideRef = db.collection("rides").document(rideId)
+
+        let requestQuery = rideRef
+            .collection("requests")
+            .whereField("userId", isEqualTo: userId)
+
+        requestQuery.getDocuments { snapshot, _ in
+            guard let requestDoc = snapshot?.documents.first else {
+                completion()
+                return
+            }
+
+            self.cleanupTransaction(
+                rideRef: rideRef,
+                requestRef: requestDoc.reference,
+                userId: userId,
+                rideId: rideId,
+                completion: completion
+            )
+        }
+    }
+    
+    
+    private func cleanupTransaction(
+        rideRef: DocumentReference,
+        requestRef: DocumentReference,
+        userId: String,
+        rideId: String,
+        completion: @escaping () -> Void
+    ) {
+        db.runTransaction({ transaction, errorPointer in
+
+            let rideSnap: DocumentSnapshot
+            let requestSnap: DocumentSnapshot
+
+            do {
+                rideSnap = try transaction.getDocument(rideRef)
+                requestSnap = try transaction.getDocument(requestRef)
+            } catch {
+                errorPointer?.pointee = error as NSError
+                return nil
+            }
+
+            let status = requestSnap.data()?["status"] as? String
+
+            if status == RideRequestStatus.approved.rawValue {
+                let seats = rideSnap.data()?["seatsAvailable"] as? Int ?? 0
+                transaction.updateData(
+                    ["seatsAvailable": seats + 1],
+                    forDocument: rideRef
+                )
+            }
+
+            // Delete request
+            transaction.deleteDocument(requestRef)
+
+            // Delete joinedRide reference
+            let joinedRideRef = self.db
+                .collection("users")
+                .document(userId)
+                .collection("joinedRides")
+                .document(rideId)
+
+            transaction.deleteDocument(joinedRideRef)
+
+            return nil
+
+        }) { _, _ in
+            completion()
+        }
+    }
+
+
+    
+    
+    
+    func reportRide(
+        ride: Ride,
+        reason: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard let reporterId = Auth.auth().currentUser?.uid else {
+            completion(.failure(NSError(domain: "AuthError", code: -1)))
+            return
+        }
+
+        let data: [String: Any] = [
+            "rideId": ride.id,
+            "reportedBy": reporterId,
+            "rideOwnerId": ride.ownerId,
+            "reason": reason,
+            "createdAt": FieldValue.serverTimestamp()
+        ]
+
+        db.collection("reports").addDocument(data: data) { error in
+            if let error = error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
+
+
+
 
 
 }

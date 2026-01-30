@@ -10,16 +10,16 @@ import Dispatch
 
 final class RideChatViewModel: ObservableObject {
 
-    // MARK: - Published State
+    // Published State
 
     @Published var messages: [RideMessage] = []
 
-    // MARK: - Private
+    // Private
 
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
 
-    // MARK: - Start Listening
+    // Start Listening
     func startListening(rideId: String) {
         stopListening()
 
@@ -64,14 +64,14 @@ final class RideChatViewModel: ObservableObject {
 
 
 
-    // MARK: - Stop Listening
+    // Stop Listening
 
     func stopListening() {
         listener?.remove()
         listener = nil
     }
 
-    // MARK: - Cleanup
+    // Cleanup
 
     deinit {
         stopListening()

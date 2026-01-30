@@ -1,124 +1,160 @@
-//
-//  RideDetailView.swift
-//  PoolPals
-//
-
 import SwiftUI
-import Dispatch
 
 struct RideDetailView: View {
 
     @StateObject private var viewModel: RideDetailViewModel
     @ObservedObject var authViewModel: AuthViewModel
-
     @Environment(\.dismiss) private var dismiss
-    
-    var currentUserName: String {
-        authViewModel.currentUserName ?? "Unknown"
-    }
+
+    // Report Ride
+    @State private var showReportConfirm = false
+    @State private var showReportSuccess = false
 
     init(ride: Ride, authViewModel: AuthViewModel) {
-        _viewModel = StateObject(
-            wrappedValue: RideDetailViewModel(ride: ride)
-        )
+        _viewModel = StateObject(wrappedValue: RideDetailViewModel(ride: ride))
         self.authViewModel = authViewModel
     }
 
-
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
+            ScrollView {
+                VStack(spacing: 20) {
 
-                // MARK: - Ride Header
+                    // Header
+                    VStack(spacing: 6) {
+                        Text(viewModel.ride.route)
+                            .font(.title2)
+                            .fontWeight(.semibold)
 
-                Text(viewModel.ride.route)
-                    .font(.title2)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Posted by: \(viewModel.ride.ownerName)")
-                        .font(.subheadline)
-
-                    Text("Car: \(viewModel.ride.carModel)")
-                        .font(.subheadline)
-
-                    Text("Car Number: \(viewModel.ride.carNumber)")
-                        .font(.subheadline)
-                }
-
-                Divider()
-
-                // MARK: - Ride Info
-
-                Text("Seats available: \(viewModel.ride.seatsAvailable)")
-                Text(viewModel.ride.time, style: .time)
-                
-                // Mark: - Chat
-                
-                NavigationLink("Open Chat") {
-                    RideChatView(
-                        ride: viewModel.ride,
-                        currentUserName: authViewModel.currentUserName ?? "Unknown"
-                    )
-                }
-                .buttonStyle(.bordered)
-
-
-                // MARK: - Actions
-
-                if viewModel.isOwner {
-                    ownerSection
-                } else {
-                    nonOwnerSection
-                }
-
-                if let error = viewModel.errorMessage {
-                    Text(error)
-                        .foregroundColor(.red)
-                }
-
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Ride Details")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        dismiss()
+                        Text("Posted by \(viewModel.ride.ownerName)")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
                     }
+
+                    // Ride Card
+                    VStack(alignment: .leading, spacing: 12) {
+
+                        infoRow(title: "Start", value: viewModel.ride.startLocationName)
+                        infoRow(title: "End", value: viewModel.ride.endLocationName)
+
+                        Divider()
+
+                        infoRow(
+                            title: "Departure",
+                            value: viewModel.ride.startDateTime.formatted(
+                                .dateTime.day().month().hour().minute()
+                            )
+                        )
+
+                        infoRow(
+                            title: "Seats Available",
+                            value: "\(viewModel.ride.seatsAvailable)"
+                        )
+
+                        infoRow(
+                            title: "Car",
+                            value: "\(viewModel.ride.carModel) • \(viewModel.ride.carNumber)"
+                        )
+                    }
+                    .padding()
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(12)
+
+                    // Chat
+                    NavigationLink {
+                        RideChatView(
+                            ride: viewModel.ride,
+                            currentUserName: authViewModel.currentUserName ?? "Unknown"
+                        )
+                    } label: {
+                        Label("Open Ride Chat", systemImage: "message")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    // Actions
+                    if viewModel.isOwner {
+                        ownerSection
+                    } else {
+                        riderSection
+
+                        // Report Ride (Non-owner only)
+                        Button(role: .destructive) {
+                            showReportConfirm = true
+                        } label: {
+                            Text("Report Ride")
+                                .font(.footnote)
+                        }
+                        .padding(.top, 8)
+                    }
+
+                    if let error = viewModel.errorMessage {
+                        Text(error)
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Ride Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") { dismiss() }
                 }
             }
             .onAppear {
                 viewModel.loadRequests()
             }
             .onChange(of: viewModel.rideDeleted) { _, deleted in
-                if deleted {
-                    dismiss()
+                if deleted { dismiss() }
+            }
+            // Report Confirmation
+            .confirmationDialog(
+                "Report Ride",
+                isPresented: $showReportConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Report for Safety Concern", role: .destructive) {
+                    RideService.shared.reportRide(
+                        ride: viewModel.ride,
+                        reason: "Safety concern"
+                    ) { _ in
+                        showReportSuccess = true
+                    }
                 }
+
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Reports are reviewed to help keep the community safe.")
+            }
+            // Report Success
+            .alert(
+                "Report Submitted",
+                isPresented: $showReportSuccess
+            ) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Thank you for helping keep PoolPals safe.")
             }
         }
     }
 
-    // MARK: - Non Owner (Requester)
-
-    private var nonOwnerSection: some View {
-        Group {
+    // Rider Section
+    private var riderSection: some View {
+        VStack(spacing: 12) {
             if viewModel.ride.seatsAvailable <= 0 {
                 Text("No seats available")
-                    .foregroundColor(.gray)
-            }
-            else if let status = viewModel.userRequestStatus {
+                    .foregroundColor(.secondary)
+            } else if let status = viewModel.userRequestStatus {
+                Text("Request status: \(status.rawValue.capitalized)")
+                    .foregroundColor(.secondary)
 
-                VStack(spacing: 8) {
-                    Text("Request status: \(status.rawValue.capitalized)")
-                        .foregroundColor(.gray)
-
-                    if status == .pending {
-                        Button("Withdraw Request") {
-                            viewModel.withdrawRequest()
-                        }
+                if status == .pending {
+                    Button("Withdraw Request") {
+                        viewModel.withdrawRequest()
                     }
                 }
-
             } else {
                 Button("Request to Join") {
                     viewModel.requestToJoin()
@@ -128,42 +164,54 @@ struct RideDetailView: View {
         }
     }
 
-    // MARK: - Owner Section
-
+    // Owner Section
     private var ownerSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
 
             Button(role: .destructive) {
                 viewModel.deleteRide()
             } label: {
-                Text("Delete Ride")
+                Label("Delete Ride", systemImage: "trash")
             }
 
-            Text("Requests")
-                .font(.headline)
+            if !viewModel.requests.isEmpty {
+                Text("Requests")
+                    .font(.headline)
 
-            List(viewModel.requests) { request in
-                HStack {
-                    Text(request.userName ?? request.userId)
-                        .font(.caption)
+                VStack(spacing: 8) {
+                    ForEach(viewModel.requests) { request in
+                        HStack {
+                            Text(request.userName ?? request.userId)
+                                .font(.subheadline)
 
-                    Spacer()
+                            Spacer()
 
-                    if request.status == .pending {
-                        Button("Approve") {
-                            viewModel.approve(requestId: request.id)
+                            if request.status == .pending {
+                                Button("Approve") {
+                                    viewModel.approve(requestId: request.id)
+                                }
+                            } else {
+                                Text(request.status.rawValue.capitalized)
+                                    .foregroundColor(.secondary)
+                            }
                         }
-                    } else if request.status == .approved {
-                        Button("Remove") {
-                            viewModel.withdrawRequest()
-                        }
-                    } else {
-                        Text(request.status.rawValue.capitalized)
-                            .foregroundColor(.gray)
+                        .padding(8)
+                        .background(.thinMaterial)
+                        .cornerRadius(8)
                     }
                 }
             }
-            .frame(minHeight: 150)
+        }
+    }
+
+    // Helper
+    private func infoRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.body)
         }
     }
 }

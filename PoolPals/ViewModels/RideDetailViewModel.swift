@@ -10,7 +10,7 @@ import Dispatch
 
 final class RideDetailViewModel: ObservableObject {
 
-    // MARK: - Published State
+    // Published State
 
     @Published var requests: [RideRequest] = []
     @Published var errorMessage: String?
@@ -18,7 +18,7 @@ final class RideDetailViewModel: ObservableObject {
     @Published var userRequestId: String?
     @Published var rideDeleted: Bool = false
 
-    // MARK: - Properties
+    // Properties
 
     let ride: Ride
 
@@ -26,20 +26,20 @@ final class RideDetailViewModel: ObservableObject {
         Auth.auth().currentUser?.uid
     }
 
-    // MARK: - Init
+    // Init
 
     init(ride: Ride) {
         self.ride = ride
         loadUserRequest()
     }
 
-    // MARK: - Computed
+    // Computed
 
     var isOwner: Bool {
         ride.ownerId == currentUserId
     }
 
-    // MARK: - User Actions
+    // User Actions
 
     func requestToJoin() {
         RideService.shared.requestToJoinRide(rideId: ride.id) { [weak self] result in
@@ -74,7 +74,7 @@ final class RideDetailViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Owner Actions
+    // Owner Actions
 
     func loadRequests() {
         guard isOwner else { return }
@@ -104,7 +104,7 @@ final class RideDetailViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Helpers
+    // Helpers
 
     private func loadUserRequest() {
         guard let userId = currentUserId else { return }
@@ -140,7 +140,7 @@ final class RideDetailViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Delete Ride
+    // Delete Ride
 
     func deleteRide() {
         RideService.shared.deleteRide(rideId: ride.id) { [weak self] result in

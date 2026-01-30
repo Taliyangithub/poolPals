@@ -16,7 +16,7 @@ final class AuthService {
 
     private init() {}
 
-    // MARK: - Sign Up
+    // Sign Up
 
     func signUp(
         email: String,
@@ -51,7 +51,7 @@ final class AuthService {
         }
     }
 
-    // MARK: - Sign In
+    // Sign In
 
     func signIn(
         email: String,
@@ -65,19 +65,19 @@ final class AuthService {
         }
     }
 
-    // MARK: - Sign Out
+    // Sign Out
 
     func signOut() throws {
         try auth.signOut()
     }
 
-    // MARK: - Current User
+    // Current User
 
     func currentUserId() -> String? {
         auth.currentUser?.uid
     }
 
-    // MARK: - Fetch Current User Profile
+    // Fetch Current User Profile
 
     func fetchCurrentUser(
         completion: @escaping (Result<AppUser, Error>) -> Void
@@ -128,4 +128,22 @@ final class AuthService {
                 completion(name)
             }
     }
+    
+    func deleteAuthUser(
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard let user = Auth.auth().currentUser else {
+            completion(.failure(NSError(domain: "Auth", code: -1)))
+            return
+        }
+
+        user.delete { error in
+            if let error = error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
+
 }

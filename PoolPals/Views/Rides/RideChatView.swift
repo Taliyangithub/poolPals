@@ -7,17 +7,17 @@ import SwiftUI
 
 struct RideChatView: View {
 
-    // MARK: - Inputs
+    // Inputs
 
     let ride: Ride
     let currentUserName: String
 
-    // MARK: - State
+    // State
 
     @StateObject private var viewModel = RideChatViewModel()
     @State private var messageText: String = ""
 
-    // MARK: - Body
+    // Body
 
     var body: some View {
         VStack {
@@ -56,7 +56,7 @@ struct RideChatView: View {
         }
     }
 
-    // MARK: - Send Message
+    // Send Message
 
     private func sendMessage() {
         RideService.shared.sendMessage(

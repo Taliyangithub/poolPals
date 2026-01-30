@@ -9,7 +9,7 @@ struct RideRowView: View {
 
     let ride: Ride
 
-    // MARK: - Derived Display Text
+    // Derived Display Text
 
     private var routeText: String {
         if !ride.startLocationName.isEmpty &&
@@ -25,13 +25,16 @@ struct RideRowView: View {
 
             Text(routeText)
                 .font(.headline)
+            
 
             Text("Seats: \(ride.seatsAvailable)")
                 .font(.subheadline)
-
-            Text(ride.time, style: .time)
+            
+            Text(ride.startDateTime, format: .dateTime.day().month().hour().minute())
                 .font(.caption)
                 .foregroundColor(.gray)
+
+
         }
         .padding(.vertical, 4)
     }

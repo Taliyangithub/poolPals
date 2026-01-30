@@ -7,49 +7,61 @@ import Foundation
 import Combine
 import FirebaseAuth
 import Dispatch
-
 final class RideViewModel: ObservableObject {
 
-    // MARK: - Published State
+    // Published State
 
     @Published var rides: [Ride] = []
+    @Published var joinedRideIds: Set<String> = []
     @Published var errorMessage: String?
 
-    // MARK: - Current User
+    // Current User
 
     private var currentUserId: String? {
         Auth.auth().currentUser?.uid
     }
 
-    // MARK: - Derived Lists
+    // Visible Rides (Created OR Joined)
 
-    var myRides: [Ride] {
+    var visibleRides: [Ride] {
         guard let uid = currentUserId else { return [] }
-        return rides.filter { $0.ownerId == uid }
-    }
 
-    var otherRides: [Ride] {
-        guard let uid = currentUserId else { return rides }
-        return rides.filter { $0.ownerId != uid }
-    }
-
-    // MARK: - Load Rides
-
-    func loadRides() {
-        RideService.shared.fetchRides { [weak self] result in
-            DispatchQueue.main.async(execute: {
-                switch result {
-                case .success(let rides):
-                    self?.rides = rides
-                    self?.errorMessage = nil
-                case .failure(let error):
-                    self?.errorMessage = error.localizedDescription
-                }
-            })
+        return rides.filter {
+            $0.ownerId == uid || joinedRideIds.contains($0.id)
         }
     }
 
-    // MARK: - Refresh Helper
+    // Load All Data
+
+    func loadRides() {
+        guard let uid = currentUserId else { return }
+
+        let group = DispatchGroup()
+
+        group.enter()
+        RideService.shared.fetchRides { [weak self] result in
+            DispatchQueue.main.async {
+                if case .success(let rides) = result {
+                    self?.rides = rides
+                } else if case .failure(let error) = result {
+                    self?.errorMessage = error.localizedDescription
+                }
+                group.leave()
+            }
+        }
+
+        group.enter()
+        RideService.shared.fetchJoinedRideIds(userId: uid) { [weak self] ids in
+            DispatchQueue.main.async {
+                self?.joinedRideIds = Set(ids)
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) { }
+    }
+
+    // Refresh Helper
 
     func refresh() {
         loadRides()
