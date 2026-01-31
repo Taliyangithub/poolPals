@@ -40,12 +40,12 @@ struct SettingsView: View {
                 Section("Legal") {
                     Link(
                         "Privacy Policy",
-                        destination: URL(string: "https://taliyangithub.github.io/gocommute/privacy-policy.html")!
+                        destination: URL(string: "https://taliyangithub.github.io/commuvia/privacy-policy.html")!
                     )
 
                     Link(
                         "Terms of Service",
-                        destination: URL(string: "https://taliyangithub.github.io/gocommute/terms.html")!
+                        destination: URL(string: "https://taliyangithub.github.io/commuvia/terms.html")!
                     )
                 }
 
