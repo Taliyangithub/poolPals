@@ -109,6 +109,7 @@ struct RideDetailView: View {
             .onChange(of: viewModel.rideDeleted) { _, deleted in
                 if deleted { dismiss() }
             }
+
             // Report Confirmation
             .confirmationDialog(
                 "Report Ride",
@@ -128,6 +129,7 @@ struct RideDetailView: View {
             } message: {
                 Text("Reports are reviewed to help keep the community safe.")
             }
+
             // Report Success
             .alert(
                 "Report Submitted",
@@ -135,25 +137,26 @@ struct RideDetailView: View {
             ) {
                 Button("OK", role: .cancel) { }
             } message: {
-                Text("Thank you for helping keep PoolPals safe.")
+                Text("Thank you for helping keep Commuvia safe.")
             }
         }
     }
 
-    // Rider Section
+    // MARK: - Rider Section
     private var riderSection: some View {
         VStack(spacing: 12) {
             if viewModel.ride.seatsAvailable <= 0 {
                 Text("No seats available")
                     .foregroundColor(.secondary)
+
             } else if let status = viewModel.userRequestStatus {
                 Text("Request status: \(status.rawValue.capitalized)")
                     .foregroundColor(.secondary)
 
-                    Button("Withdraw Request") {
-                        viewModel.withdrawRequest()
-                    }
-             
+                Button("Withdraw Request") {
+                    viewModel.withdrawRequest()
+                }
+
             } else {
                 Button("Request to Join") {
                     viewModel.requestToJoin()
@@ -163,16 +166,42 @@ struct RideDetailView: View {
         }
     }
 
-    // Owner Section
+    // MARK: - Owner Section
     private var ownerSection: some View {
         VStack(alignment: .leading, spacing: 16) {
 
+            // Update Seats
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Seats Available")
+                    .font(.headline)
+
+                Stepper(
+                    value: Binding(
+                        get: { viewModel.ride.seatsAvailable },
+                        set: { newValue in
+                            viewModel.updateSeats(to: newValue)
+                        }
+                    ),
+                    in: 0...20
+                ) {
+                    Text("\(viewModel.ride.seatsAvailable) seats")
+                }
+
+                Text("Seats cannot be reduced below the number of approved riders.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            // Delete Ride
             Button(role: .destructive) {
                 viewModel.deleteRide()
             } label: {
                 Label("Delete Ride", systemImage: "trash")
             }
 
+            // Requests
             if !viewModel.requests.isEmpty {
                 Text("Requests")
                     .font(.headline)
@@ -195,8 +224,7 @@ struct RideDetailView: View {
                                 } label: {
                                     Text("Remove")
                                 }
-                            }
-                            else {
+                            } else {
                                 Text(request.status.rawValue.capitalized)
                                     .foregroundColor(.secondary)
                             }
@@ -210,7 +238,7 @@ struct RideDetailView: View {
         }
     }
 
-    // Helper
+    // MARK: - Helper
     private func infoRow(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
@@ -221,3 +249,4 @@ struct RideDetailView: View {
         }
     }
 }
+

@@ -1,6 +1,6 @@
 //
 //  RideService.swift
-//  PoolPals
+//  Commuvia
 //
 
 import Foundation
@@ -33,6 +33,19 @@ final class RideService {
             completion(.failure(NSError(domain: "AuthError", code: -1)))
             return
         }
+        
+        guard Auth.auth().currentUser?.isEmailVerified == true else {
+            completion(.failure(NSError(
+                domain: "EmailVerification",
+                code: 403,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                    "Please verify your email before using ride features."
+                ]
+            )))
+            return
+        }
+
 
         let data: [String: Any] = [
             "ownerId": userId,
@@ -101,7 +114,12 @@ final class RideService {
                     )
                 } ?? []
 
-                completion(.success(rides))
+                BlockService.shared.fetchBlockedUsers { blockedIds in
+                    let filtered = rides.filter {
+                        !blockedIds.contains($0.ownerId)
+                    }
+                    completion(.success(filtered))
+                }
             }
     }
 
@@ -361,6 +379,19 @@ final class RideService {
             completion(.failure(NSError(domain: "AuthError", code: -1)))
             return
         }
+        
+        guard Auth.auth().currentUser?.isEmailVerified == true else {
+            completion(.failure(NSError(
+                domain: "EmailVerification",
+                code: 403,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                    "Please verify your email before using ride features."
+                ]
+            )))
+            return
+        }
+
 
         let userId = user.uid
         let requestsRef = db
@@ -461,6 +492,13 @@ final class RideService {
         to: Date?,
         completion: @escaping ([Ride]) -> Void
     ) {
+
+        //Email verification enforcement
+        guard Auth.auth().currentUser?.isEmailVerified == true else {
+            completion([])
+            return
+        }
+
         var query = db.collection("rides").order(by: "time")
 
         if let from {
@@ -514,7 +552,6 @@ final class RideService {
         }
     }
 
-    
     func deleteAccount(
         userId: String,
         completion: @escaping (Result<Void, Error>) -> Void
@@ -528,12 +565,11 @@ final class RideService {
             }
 
             let joinedRideIds = snapshot?.documents.map { $0.documentID } ?? []
-
             let group = DispatchGroup()
 
+            // Clean up seat allocations & ride requests
             for rideId in joinedRideIds {
                 group.enter()
-
                 self.handleSeatCleanup(
                     rideId: rideId,
                     userId: userId
@@ -542,18 +578,26 @@ final class RideService {
                 }
             }
 
+            //After seat cleanup → anonymize user-generated content
             group.notify(queue: .main) {
-                // Delete user Firestore document
-                userRef.delete { error in
-                    if let error = error {
-                        completion(.failure(error))
-                    } else {
-                        completion(.success(()))
+
+                self.anonymizeUserContent(userId: userId) {
+                    self.anonymizeUserReports(userId: userId) {
+
+                        // 3️⃣ Finally delete user profile document
+                        userRef.delete { error in
+                            if let error = error {
+                                completion(.failure(error))
+                            } else {
+                                completion(.success(()))
+                            }
+                        }
                     }
                 }
             }
         }
     }
+
 
     private func handleSeatCleanup(
         rideId: String,
@@ -831,7 +875,160 @@ final class RideService {
                 }
             }
     }
+    
+    private func anonymizeUserContent(
+        userId: String,
+        completion: @escaping () -> Void
+    ) {
+        db.collection("rides").getDocuments { snapshot, _ in
+            guard let rideDocs = snapshot?.documents else {
+                completion()
+                return
+            }
+
+            let group = DispatchGroup()
+
+            for rideDoc in rideDocs {
+                let messagesRef = rideDoc.reference.collection("messages")
+
+                group.enter()
+                messagesRef
+                    .whereField("senderId", isEqualTo: userId)
+                    .getDocuments { msgSnap, _ in
+
+                        let batch = self.db.batch()
+
+                        msgSnap?.documents.forEach { msgDoc in
+                            batch.updateData([
+                                "senderId": "deleted",
+                                "senderName": "Deleted User"
+                            ], forDocument: msgDoc.reference)
+                        }
+
+                        batch.commit { _ in
+                            group.leave()
+                        }
+                    }
+            }
+
+            group.notify(queue: .main) {
+                completion()
+            }
+        }
+    }
+    
+    func updateSeatsAvailable(
+        rideId: String,
+        newSeatsAvailable: Int,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        let rideRef = db.collection("rides").document(rideId)
+        let requestsRef = rideRef.collection("requests")
+
+        db.runTransaction({ transaction, errorPointer in
+
+            let rideSnap: DocumentSnapshot
+            do {
+                rideSnap = try transaction.getDocument(rideRef)
+            } catch {
+                errorPointer?.pointee = error as NSError
+                return nil
+            }
+
+            // Count approved riders
+            let approvedQuery = requestsRef
+                .whereField("status", isEqualTo: RideRequestStatus.approved.rawValue)
+
+            let approvedSnap: QuerySnapshot
+            do {
+                approvedSnap = try transaction.getDocuments(approvedQuery)
+            } catch {
+                errorPointer?.pointee = error as NSError
+                return nil
+            }
+
+            let approvedCount = approvedSnap.documents.count
+
+            // Validation rule
+            guard newSeatsAvailable >= approvedCount else {
+                errorPointer?.pointee = NSError(
+                    domain: "RideError",
+                    code: 400,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "Seats cannot be less than the number of approved riders."
+                    ]
+                )
+                return nil
+            }
+
+            transaction.updateData(
+                ["seatsAvailable": newSeatsAvailable],
+                forDocument: rideRef
+            )
+
+            return nil
+
+        }) { _, error in
+            if let error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
 
 
+    private func anonymizeUserReports(
+        userId: String,
+        completion: @escaping () -> Void
+    ) {
+        let group = DispatchGroup()
+
+        // Ride reports
+        group.enter()
+        db.collection("reports")
+            .whereField("reportedBy", isEqualTo: userId)
+            .getDocuments { snap, _ in
+
+                let batch = self.db.batch()
+
+                snap?.documents.forEach { doc in
+                    batch.updateData([
+                        "reportedBy": "deleted"
+                    ], forDocument: doc.reference)
+                }
+
+                batch.commit { _ in
+                    group.leave()
+                }
+            }
+
+        // Block reports
+        group.enter()
+        db.collection("blockedReports")
+            .whereField("reporterId", isEqualTo: userId)
+            .getDocuments { snap, _ in
+
+                let batch = self.db.batch()
+
+                snap?.documents.forEach { doc in
+                    batch.updateData([
+                        "reporterId": "deleted"
+                    ], forDocument: doc.reference)
+                }
+
+                batch.commit { _ in
+                    group.leave()
+                }
+            }
+
+        group.notify(queue: .main) {
+            completion()
+        }
+    }
+
+    
+    
 
 }

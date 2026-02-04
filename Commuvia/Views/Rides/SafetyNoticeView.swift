@@ -1,6 +1,6 @@
 //
 //  SafetyNoticeView.swift
-//  PoolPals
+//  Commuvia
 //
 //  Created by Priya Taliyan on 2026-01-30.
 //
@@ -24,7 +24,7 @@ struct SafetyNoticeView: View {
                 .fontWeight(.semibold)
 
             Text("""
-PoolPals helps connect people for shared rides.
+Commuvia helps connect people for shared rides.
 
 Always use your judgment when traveling with others.
 Meet in public places and share your plans with someone you trust.

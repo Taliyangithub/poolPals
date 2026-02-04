@@ -1,6 +1,6 @@
 //
 //  RideDetailViewModel.swift
-//  PoolPals
+//  Commuvia
 //
 
 import Foundation
@@ -9,7 +9,7 @@ import FirebaseAuth
 
 final class RideDetailViewModel: ObservableObject {
 
-    // MARK: - Published State
+    //Published State
 
     @Published var ride: Ride
     @Published var requests: [RideRequest] = []
@@ -18,7 +18,7 @@ final class RideDetailViewModel: ObservableObject {
     @Published var userRequestId: String?
     @Published var rideDeleted: Bool = false
 
-    // MARK: - Current User
+    //Current User
 
     private var currentUserId: String? {
         Auth.auth().currentUser?.uid
@@ -28,14 +28,14 @@ final class RideDetailViewModel: ObservableObject {
         ride.ownerId == currentUserId
     }
 
-    // MARK: - Init
+    //Init
 
     init(ride: Ride) {
         self.ride = ride
         loadUserRequest()
     }
 
-    // MARK: - Rider Actions
+    //Rider Actions
 
     func requestToJoin() {
         RideService.shared.requestToJoinRide(rideId: ride.id) { [weak self] result in
@@ -153,7 +153,7 @@ final class RideDetailViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Delete Ride
+    //Delete Ride
 
     func deleteRide() {
         RideService.shared.deleteRide(rideId: ride.id) { [weak self] result in
@@ -167,4 +167,21 @@ final class RideDetailViewModel: ObservableObject {
             }
         }
     }
+    
+    func updateSeats(to newSeats: Int) {
+        RideService.shared.updateSeatsAvailable(
+            rideId: ride.id,
+            newSeatsAvailable: newSeats
+        ) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self?.refreshRide()
+                case .failure(let error):
+                    self?.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
 }

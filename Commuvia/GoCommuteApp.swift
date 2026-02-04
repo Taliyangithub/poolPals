@@ -2,7 +2,7 @@ import SwiftUI
 import FirebaseCore
 
 @main
-struct PoolPalsApp: App {
+struct CommuviaApp: App {
     
     init() {
         FirebaseApp.configure()

@@ -1,6 +1,6 @@
 //
 //  SettingsView.swift
-//  PoolPals
+//  Commuvia
 //
 //  Created by Priya Taliyan on 2026-01-30.
 //
@@ -48,6 +48,12 @@ struct SettingsView: View {
                         destination: URL(string: "https://taliyangithub.github.io/commuvia/terms.html")!
                     )
                 }
+                
+                
+                NavigationLink("Change Password") {
+                    ChangePasswordView(authViewModel: authViewModel)
+                }
+
 
 
                 // Account Actions

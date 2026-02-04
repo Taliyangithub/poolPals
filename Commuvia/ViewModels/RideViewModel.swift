@@ -1,6 +1,6 @@
 //
 //  RideViewModel.swift
-//  PoolPals
+//  Commuvia
 //
 
 import Foundation

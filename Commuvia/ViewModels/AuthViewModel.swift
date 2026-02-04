@@ -1,6 +1,6 @@
 //
 //  AuthViewModel.swift
-//  PoolPals
+//  Commuvia
 //
 
 import Foundation
@@ -9,9 +9,10 @@ import Combine
 
 final class AuthViewModel: ObservableObject {
 
-    @Published var isAuthenticated: Bool = false
-    @Published var errorMessage: String?
+    @Published var isAuthenticated = false
+    @Published var isEmailVerified = false
     @Published var currentUserName: String?
+    @Published var errorMessage: String?
 
     private var authListener: AuthStateDidChangeListenerHandle?
 
@@ -25,49 +26,33 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
-    // Observe Auth State
-
     private func observeAuthState() {
         authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             DispatchQueue.main.async {
-                if user != nil {
+                if let user {
                     self?.isAuthenticated = true
+                    self?.isEmailVerified = user.isEmailVerified
                     self?.loadCurrentUserProfile()
                 } else {
                     self?.isAuthenticated = false
+                    self?.isEmailVerified = false
                     self?.currentUserName = nil
                 }
             }
         }
     }
 
-    // Sign Up
-
-    func signUp(email: String, password: String, name: String) {
-        AuthService.shared.signUp(
-            email: email,
-            password: password,
-            name: name
-        ) { [weak self] result in
+    func refreshEmailVerification() {
+        Auth.auth().currentUser?.reload { [weak self] _ in
             DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    self?.errorMessage = nil
-                    self?.loadCurrentUserProfile()
-                case .failure(let error):
-                    self?.errorMessage = error.localizedDescription
-                }
+                self?.isEmailVerified =
+                    Auth.auth().currentUser?.isEmailVerified ?? false
             }
         }
     }
 
-    // Sign In
-
-    func signIn(email: String, password: String) {
-        AuthService.shared.signIn(
-            email: email,
-            password: password
-        ) { [weak self] result in
+    func signUp(email: String, password: String, name: String) {
+        AuthService.shared.signUp(email: email, password: password, name: name) { [weak self] result in
             DispatchQueue.main.async {
                 if case let .failure(error) = result {
                     self?.errorMessage = error.localizedDescription
@@ -76,40 +61,52 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
-    // Load Current User Profile
+    func signIn(email: String, password: String) {
+        AuthService.shared.signIn(email: email, password: password) { [weak self] result in
+            DispatchQueue.main.async {
+                if case let .failure(error) = result {
+                    self?.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
 
     private func loadCurrentUserProfile() {
         AuthService.shared.fetchCurrentUser { [weak self] result in
             DispatchQueue.main.async {
-                switch result {
-                case .success(let user):
+                if case let .success(user) = result {
                     self?.currentUserName = user.name
-                    self?.errorMessage = nil
-                case .failure(let error):
-                    self?.errorMessage = error.localizedDescription
                 }
             }
-        }
-    }
-
-    // Sign Out
-
-    func signOut() {
-        do {
-            try AuthService.shared.signOut()
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
     
-    func deleteAccountAndSignOut() {
-        guard let uid = Auth.auth().currentUser?.uid else { return }
-
-        RideService.shared.deleteAccount(userId: uid) { [weak self] result in
+    func changePassword(
+        currentPassword: String,
+        newPassword: String
+    ) {
+        AuthService.shared.changePassword(
+            currentPassword: currentPassword,
+            newPassword: newPassword
+        ) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success:
-                    AuthService.shared.deleteAuthUser { _ in }
+                    self?.errorMessage = "Password updated successfully."
+                case .failure(let error):
+                    self?.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+    
+    func forgotPassword(email: String) {
+        AuthService.shared.sendPasswordReset(email: email) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self?.errorMessage =
+                        "Password reset email sent. If you reset your password, your email will be verified automatically."
                 case .failure(let error):
                     self?.errorMessage = error.localizedDescription
                 }
@@ -117,4 +114,9 @@ final class AuthViewModel: ObservableObject {
         }
     }
 
+
+
+    func signOut() {
+        try? AuthService.shared.signOut()
+    }
 }

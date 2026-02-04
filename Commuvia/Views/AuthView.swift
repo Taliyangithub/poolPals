@@ -1,6 +1,6 @@
 //
 //  AuthView.swift
-//  PoolPals
+//  Commuvia
 //
 //  Created by Priya Taliyan on 2025-12-30.
 //
@@ -71,6 +71,12 @@ struct AuthView: View {
                     : "Already have an account?"
                 )
             }
+            
+            NavigationLink("Forgot Password?") {
+                ForgotPasswordView(authViewModel: viewModel)
+            }
+            .font(.footnote)
+
             
             if let error = viewModel.errorMessage {
                 Text(error)

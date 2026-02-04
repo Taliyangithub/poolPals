@@ -1,6 +1,6 @@
 //
 //  AuthService.swift
-//  PoolPals
+//  Commuvia
 //
 
 import Foundation
@@ -16,7 +16,7 @@ final class AuthService {
 
     private init() {}
 
-    // Sign Up
+    //Sign Up
 
     func signUp(
         email: String,
@@ -31,7 +31,7 @@ final class AuthService {
                 return
             }
 
-            guard let userId = result?.user.uid else {
+            guard let user = result?.user else {
                 completion(.failure(NSError(domain: "AuthError", code: -1)))
                 return
             }
@@ -42,16 +42,19 @@ final class AuthService {
             ]
 
             self.db.collection("users")
-                .document(userId)
+                .document(user.uid)
                 .setData(userData) { error in
-                    error == nil
-                        ? completion(.success(()))
-                        : completion(.failure(error!))
+                    if let error {
+                        completion(.failure(error))
+                    } else {
+                        user.sendEmailVerification()
+                        completion(.success(()))
+                    }
                 }
         }
     }
 
-    // Sign In
+    //Sign In
 
     func signIn(
         email: String,
@@ -65,19 +68,25 @@ final class AuthService {
         }
     }
 
-    // Sign Out
+    //Sign Out
 
     func signOut() throws {
         try auth.signOut()
     }
 
-    // Current User
+    //Email Verification
 
-    func currentUserId() -> String? {
-        auth.currentUser?.uid
+    func sendEmailVerification(
+        completion: ((Error?) -> Void)? = nil
+    ) {
+        auth.currentUser?.sendEmailVerification(completion: completion)
     }
 
-    // Fetch Current User Profile
+    func isEmailVerified() -> Bool {
+        auth.currentUser?.isEmailVerified ?? false
+    }
+
+    //User Profile
 
     func fetchCurrentUser(
         completion: @escaping (Result<AppUser, Error>) -> Void
@@ -91,7 +100,7 @@ final class AuthService {
             .document(uid)
             .getDocument { snapshot, error in
 
-                if let error = error {
+                if let error {
                     completion(.failure(error))
                     return
                 }
@@ -105,18 +114,12 @@ final class AuthService {
                     return
                 }
 
-                completion(
-                    .success(
-                        AppUser(
-                            id: uid,
-                            email: email,
-                            name: name
-                        )
-                    )
-                )
+                completion(.success(
+                    AppUser(id: uid, email: email, name: name)
+                ))
             }
     }
-    
+
     func fetchUserName(
         userId: String,
         completion: @escaping (String?) -> Void
@@ -124,26 +127,89 @@ final class AuthService {
         db.collection("users")
             .document(userId)
             .getDocument { snapshot, _ in
-                let name = snapshot?.data()?["name"] as? String
-                completion(name)
+                completion(snapshot?.data()?["name"] as? String)
             }
     }
-    
+
+    //Terms
+
+    func hasAcceptedTerms(
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard let uid = auth.currentUser?.uid else {
+            completion(false)
+            return
+        }
+
+        db.collection("users")
+            .document(uid)
+            .getDocument { snap, _ in
+                completion(snap?.data()?["termsAccepted"] as? Bool ?? false)
+            }
+    }
+
+    //Delete Auth User
+
     func deleteAuthUser(
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        guard let user = Auth.auth().currentUser else {
+        guard let user = auth.currentUser else {
             completion(.failure(NSError(domain: "Auth", code: -1)))
             return
         }
 
         user.delete { error in
-            if let error = error {
+            error == nil
+                ? completion(.success(()))
+                : completion(.failure(error!))
+        }
+    }
+    
+    //Change Password
+
+    func changePassword(
+        currentPassword: String,
+        newPassword: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard let user = auth.currentUser,
+              let email = user.email else {
+            completion(.failure(NSError(domain: "AuthError", code: -1)))
+            return
+        }
+
+        let credential = EmailAuthProvider.credential(
+            withEmail: email,
+            password: currentPassword
+        )
+
+        // Re-authenticate (required by Firebase)
+        user.reauthenticate(with: credential) { _, error in
+            if let error {
+                completion(.failure(error))
+                return
+            }
+
+            user.updatePassword(to: newPassword) { error in
+                error == nil
+                    ? completion(.success(()))
+                    : completion(.failure(error!))
+            }
+        }
+    }
+    
+    func sendPasswordReset(
+        email: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        auth.sendPasswordReset(withEmail: email) { error in
+            if let error {
                 completion(.failure(error))
             } else {
                 completion(.success(()))
             }
         }
     }
+
 
 }

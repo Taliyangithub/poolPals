@@ -41,6 +41,10 @@
 		F2AC0BDF2F2E06060059F676 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F2AC0BB82F2E06060059F676 /* Assets.xcassets */; };
 		F2AC0BE02F2E06060059F676 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = F2AC0BBE2F2E06060059F676 /* README.md */; };
 		F2AC0BE62F2E0CA50059F676 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F2AC0BE52F2E0CA50059F676 /* LaunchScreen.storyboard */; };
+		F2DD527D2F33AC3F004D4213 /* TermsAcceptanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2DD527C2F33AC3F004D4213 /* TermsAcceptanceView.swift */; };
+		F2DD527F2F33ACB9004D4213 /* BlockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2DD527E2F33ACB8004D4213 /* BlockService.swift */; };
+		F2DD52832F33AE73004D4213 /* ContentFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2DD52822F33AE73004D4213 /* ContentFilter.swift */; };
+		F2DD52852F33B096004D4213 /* EmailVerificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2DD52842F33B096004D4213 /* EmailVerificationView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -76,7 +80,19 @@
 		F2AC0BBA2F2E06060059F676 /* GoCommuteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoCommuteApp.swift; sourceTree = "<group>"; };
 		F2AC0BBE2F2E06060059F676 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		F2AC0BE52F2E0CA50059F676 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		F2DD527C2F33AC3F004D4213 /* TermsAcceptanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TermsAcceptanceView.swift; sourceTree = "<group>"; };
+		F2DD527E2F33ACB8004D4213 /* BlockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockService.swift; sourceTree = "<group>"; };
+		F2DD52822F33AE73004D4213 /* ContentFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentFilter.swift; sourceTree = "<group>"; };
+		F2DD52842F33B096004D4213 /* EmailVerificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailVerificationView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		F2DD52862F33B336004D4213 /* Account */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Account;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		F2243C612F047A1C0014071A /* Frameworks */ = {
@@ -126,6 +142,8 @@
 		F2AC0BA32F2E06060059F676 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				F2DD52822F33AE73004D4213 /* ContentFilter.swift */,
+				F2DD527E2F33ACB8004D4213 /* BlockService.swift */,
 				F2AC0BA12F2E06060059F676 /* AuthService.swift */,
 				F2AC0BA22F2E06060059F676 /* RideService.swift */,
 			);
@@ -164,6 +182,9 @@
 		F2AC0BB72F2E06060059F676 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				F2DD52862F33B336004D4213 /* Account */,
+				F2DD52842F33B096004D4213 /* EmailVerificationView.swift */,
+				F2DD527C2F33AC3F004D4213 /* TermsAcceptanceView.swift */,
 				F2AC0BB42F2E06060059F676 /* Rides */,
 				F2AC0BB52F2E06060059F676 /* AuthView.swift */,
 				F2AC0BB62F2E06060059F676 /* SettingsView.swift */,
@@ -200,6 +221,9 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				F2DD52862F33B336004D4213 /* Account */,
 			);
 			name = Commuvia;
 			packageProductDependencies = (
@@ -268,6 +292,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F2AC0BC22F2E06060059F676 /* SafetyNoticeView.swift in Sources */,
+				F2DD52852F33B096004D4213 /* EmailVerificationView.swift in Sources */,
 				F2AC0BC32F2E06060059F676 /* GoCommuteApp.swift in Sources */,
 				F2AC0BC52F2E06060059F676 /* AppUser.swift in Sources */,
 				F2AC0BC62F2E06060059F676 /* ContentView.swift in Sources */,
@@ -278,6 +303,7 @@
 				F2AC0BCC2F2E06060059F676 /* SettingsView.swift in Sources */,
 				F2AC0BCD2F2E06060059F676 /* PendingRideRequest.swift in Sources */,
 				F2AC0BCE2F2E06060059F676 /* RideChatView.swift in Sources */,
+				F2DD527F2F33ACB9004D4213 /* BlockService.swift in Sources */,
 				F2AC0BCF2F2E06060059F676 /* AuthViewModel.swift in Sources */,
 				F2AC0BD02F2E06060059F676 /* PendingRequestsViewModel.swift in Sources */,
 				F2AC0BD12F2E06060059F676 /* RideDetailViewModel.swift in Sources */,
@@ -287,11 +313,13 @@
 				F2AC0BD52F2E06060059F676 /* RideListView.swift in Sources */,
 				F2AC0BD62F2E06060059F676 /* RideViewModel.swift in Sources */,
 				F2AC0BD72F2E06060059F676 /* PendingRequestsView.swift in Sources */,
+				F2DD52832F33AE73004D4213 /* ContentFilter.swift in Sources */,
 				F2AC0BD82F2E06060059F676 /* LocationPickerView.swift in Sources */,
 				F2AC0BD92F2E06060059F676 /* RideRequest.swift in Sources */,
 				F2AC0BDA2F2E06060059F676 /* Ride.swift in Sources */,
 				F2AC0BDB2F2E06060059F676 /* AuthView.swift in Sources */,
 				F2AC0BDC2F2E06060059F676 /* CreateRideView.swift in Sources */,
+				F2DD527D2F33AC3F004D4213 /* TermsAcceptanceView.swift in Sources */,
 				F2AC0BDD2F2E06060059F676 /* RideRowView.swift in Sources */,
 				F2AC0BDE2F2E06060059F676 /* RideSearchView.swift in Sources */,
 			);
@@ -513,8 +541,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 12.7.0;
+				kind = exactVersion;
+				version = 12.7.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

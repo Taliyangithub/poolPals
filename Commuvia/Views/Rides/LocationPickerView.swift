@@ -1,6 +1,6 @@
 //
 //  LocationPickerView.swift
-//  PoolPals
+//  Commuvia
 //
 //  Created by Priya Taliyan on 2026-01-30.
 //
