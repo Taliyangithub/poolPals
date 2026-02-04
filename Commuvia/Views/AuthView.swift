@@ -5,7 +5,6 @@
 //  Created by Priya Taliyan on 2025-12-30.
 //
 
-
 import SwiftUI
 
 struct AuthView: View {
@@ -18,86 +17,86 @@ struct AuthView: View {
     @State private var isLoginMode = true
     
     var body: some View {
-        VStack(spacing: 16) {
-            
-            Image("Logo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 150, height: 150)
-                .padding(.top, 40)
-            
-            Text(isLoginMode ? "Sign In" : "Create Account")
-                .font(.title)
-        
-            
-            if !isLoginMode {
-                TextField("Name", text: $name)
+        NavigationStack {
+            VStack(spacing: 16) {
+                
+                Image("Logo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 150, height: 150)
+                    .padding(.top, 40)
+                
+                Text(isLoginMode ? "Sign In" : "Create Account")
+                    .font(.title)
+                
+                if !isLoginMode {
+                    TextField("Name", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                }
+                
+                TextField("Email", text: $email)
+                    .autocapitalization(.none)
+                    .keyboardType(.emailAddress)
                     .textFieldStyle(.roundedBorder)
-            }
-            
-            TextField("Email", text: $email)
-                .autocapitalization(.none)
-                .keyboardType(.emailAddress)
-                .textFieldStyle(.roundedBorder)
-            
-            SecureField("Password", text: $password)
-                .textFieldStyle(.roundedBorder)
-            
-            Button {
-                if isLoginMode {
-                    viewModel.signIn(
-                        email: email,
-                        password: password
-                    )
-                } else {
-                    viewModel.signUp(
-                        email: email,
-                        password: password,
-                        name: name
+                
+                SecureField("Password", text: $password)
+                    .textFieldStyle(.roundedBorder)
+                
+                Button {
+                    if isLoginMode {
+                        viewModel.signIn(
+                            email: email,
+                            password: password
+                        )
+                    } else {
+                        viewModel.signUp(
+                            email: email,
+                            password: password,
+                            name: name
+                        )
+                    }
+                } label: {
+                    Text(isLoginMode ? "Sign In" : "Sign Up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                
+                Button {
+                    isLoginMode.toggle()
+                } label: {
+                    Text(
+                        isLoginMode
+                        ? "Need an account?"
+                        : "Already have an account?"
                     )
                 }
-            } label: {
-                Text(isLoginMode ? "Sign In" : "Sign Up")
+                
+                NavigationLink("Forgot Password?") {
+                    ForgotPasswordView(authViewModel: viewModel)
+                }
+                .font(.footnote)
+
+                Divider()
+                    .padding(.vertical, 8)
+
+                Button {
+                    viewModel.signInWithGoogle()
+                } label: {
+                    HStack {
+                        Image(systemName: "g.circle.fill")
+                        Text("Continue with Google")
+                    }
                     .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            
-            Button {
-                isLoginMode.toggle()
-            } label: {
-                Text(
-                    isLoginMode
-                    ? "Need an account?"
-                    : "Already have an account?"
-                )
-            }
-            
-            NavigationLink("Forgot Password?") {
-                ForgotPasswordView(authViewModel: viewModel)
-            }
-            .font(.footnote)
-
-            Divider()
-                .padding(.vertical, 8)
-
-            Button {
-                viewModel.signInWithGoogle()
-            } label: {
-                HStack {
-                    Image(systemName: "g.circle.fill")
-                    Text("Continue with Google")
                 }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
+                .buttonStyle(.bordered)
 
-            
-            if let error = viewModel.errorMessage {
-                Text(error)
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                }
             }
+            .padding()
         }
-        .padding()
     }
 }
