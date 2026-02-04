@@ -1,41 +1,56 @@
-//
-//  EmailVerificationView.swift
-//  Commuvia
-//
-//  Created by Priya Taliyan on 2026-02-04.
-//
-
-
 import SwiftUI
+import FirebaseAuth
 
 struct EmailVerificationView: View {
 
     let onRefresh: () -> Void
     let onResend: () -> Void
 
+    @State private var message =
+        "Please verify your email address to continue."
+
     var body: some View {
         VStack(spacing: 20) {
 
-            Text("Verify your email")
+            Spacer()
+
+            Image(systemName: "envelope.badge")
+                .font(.system(size: 48))
+                .foregroundColor(.accentColor)
+
+            Text("Verify Your Email")
                 .font(.title2)
-                .bold()
+                .fontWeight(.semibold)
 
-            Text("""
-            Please verify your email address before using Commuvia.
+            Text(message)
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
 
-            Check your inbox and spam folder.
-            """)
-            .multilineTextAlignment(.center)
-
-            Button("I have verified my email") {
+            Button("I’ve Verified My Email") {
                 onRefresh()
             }
+            .buttonStyle(.borderedProminent)
 
-            Button("Resend verification email") {
+            Button("Resend Verification Email") {
                 onResend()
+                message = "Verification email sent. Please check your inbox and spam folder."
             }
-            .foregroundColor(.blue)
+            .buttonStyle(.bordered)
+
+            Divider()
+                .padding(.vertical, 8)
+
+            //LOG OUT BUTTON (IMPORTANT)
+            Button(role: .destructive) {
+                try? Auth.auth().signOut()
+            } label: {
+                Text("Log Out and Sign In Again")
+            }
+
+            Spacer()
         }
         .padding()
+        .navigationBarBackButtonHidden(true)
     }
 }

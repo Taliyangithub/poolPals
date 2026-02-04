@@ -67,7 +67,12 @@ final class AuthService {
                 : completion(.failure(error!))
         }
     }
+    // get current userid
+    func currentUserId() -> String? {
+        auth.currentUser?.uid
+    }
 
+    
     //Sign Out
 
     func signOut() throws {

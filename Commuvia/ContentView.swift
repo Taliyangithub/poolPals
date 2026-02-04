@@ -6,36 +6,50 @@ struct ContentView: View {
     @State private var showTerms = false
 
     var body: some View {
-        Group {
-            if !authViewModel.isAuthenticated {
-                AuthView(viewModel: authViewModel)
+        ZStack {
 
-            } else if !authViewModel.isEmailVerified {
-                EmailVerificationView(
-                    onRefresh: {
-                        authViewModel.refreshEmailVerification()
-                    },
-                    onResend: {
-                        AuthService.shared.sendEmailVerification()
-                    }
-                )
+            // MAIN FLOW
+            Group {
+                if !authViewModel.isAuthenticated {
+                    AuthView(viewModel: authViewModel)
 
-            } else {
-                RideListView(
-                    authViewModel: authViewModel,
-                    onSignOut: authViewModel.signOut
-                )
-                .onAppear {
-                    AuthService.shared.hasAcceptedTerms { accepted in
-                        DispatchQueue.main.async {
-                            showTerms = !accepted
+                } else if !authViewModel.isEmailVerified {
+                    EmailVerificationView(
+                        onRefresh: {
+                            authViewModel.refreshEmailVerification()
+                        },
+                        onResend: {
+                            AuthService.shared.sendEmailVerification()
+                        }
+                    )
+
+                } else {
+                    RideListView(
+                        authViewModel: authViewModel,
+                        onSignOut: authViewModel.signOut
+                    )
+                    .onAppear {
+                        AuthService.shared.hasAcceptedTerms { accepted in
+                            DispatchQueue.main.async {
+                                showTerms = !accepted
+                            }
                         }
                     }
                 }
-                .sheet(isPresented: $showTerms) {
-                    TermsAcceptanceView()
-                }
             }
+
+            if showTerms {
+                Color.black.opacity(0.25)
+                    .ignoresSafeArea()
+
+                TermsAcceptanceView(
+                    onAccepted: {
+                        showTerms = false
+                    }
+                )
+                .padding()
+            }
+
         }
     }
 }

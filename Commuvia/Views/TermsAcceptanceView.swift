@@ -2,9 +2,6 @@
 //  TermsAcceptanceView.swift
 //  Commuvia
 //
-//  Created by Priya Taliyan on 2026-02-04.
-//
-
 
 import SwiftUI
 import FirebaseFirestore
@@ -12,45 +9,70 @@ import FirebaseAuth
 
 struct TermsAcceptanceView: View {
 
-    @Environment(\.dismiss) private var dismiss
+    let onAccepted: () -> Void
+
     @State private var accepted = false
     @State private var error: String?
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(alignment: .leading, spacing: 20) {
 
-            ScrollView {
-                Text("""
-                Commuvia Community Guidelines
+            Text("Commuvia Community Guidelines")
+                .font(.headline)
 
-                • No harassment, hate speech, threats, or abusive behavior
-                • No sexual or violent content
-                • No impersonation or spam
-                • Violations may result in permanent account removal
-
-                Reported content is reviewed within 24 hours.
-                """)
-                .font(.body)
+            VStack(alignment: .leading, spacing: 8) {
+                guideline("No harassment, hate speech, threats, or abusive behavior")
+                guideline("No sexual or violent content")
+                guideline("No impersonation or spam")
+                guideline("Violations may result in permanent account removal")
             }
-            
-            Text("All reports are reviewed and acted upon within 24 hours.")
+
+            Text("Reported content is reviewed and acted upon within 24 hours.")
                 .font(.footnote)
                 .foregroundColor(.secondary)
 
+            Divider()
 
-            Toggle("I agree to the Terms and Safety Guidelines", isOn: $accepted)
+            Toggle(
+                "I agree to the Terms and Safety Guidelines",
+                isOn: $accepted
+            )
 
             if let error {
-                Text(error).foregroundColor(.red)
+                Text(error)
+                    .foregroundColor(.red)
+                    .font(.footnote)
             }
 
-            Button("Continue") {
-                saveAcceptance()
+            HStack {
+                Spacer()
+
+                Button("Continue") {
+                    saveAcceptance()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!accepted)
+
+                Spacer()
             }
-            .disabled(!accepted)
         }
         .padding()
+        .frame(maxWidth: 480)
+        .background(.thinMaterial)
+        .cornerRadius(14)
     }
+
+    //Helpers
+
+    private func guideline(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("•")
+            Text(text)
+        }
+        .font(.body)
+    }
+
+    //Save Acceptance
 
     private func saveAcceptance() {
         guard let uid = Auth.auth().currentUser?.uid else { return }
@@ -65,7 +87,7 @@ struct TermsAcceptanceView: View {
                 if let err {
                     error = err.localizedDescription
                 } else {
-                    dismiss()
+                    onAccepted()   // ⬅️ THIS dismisses the overlay
                 }
             }
     }

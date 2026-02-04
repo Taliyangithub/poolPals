@@ -83,22 +83,36 @@ final class AuthViewModel: ObservableObject {
     
     func changePassword(
         currentPassword: String,
-        newPassword: String
+        newPassword: String,
+        completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        AuthService.shared.changePassword(
-            currentPassword: currentPassword,
-            newPassword: newPassword
-        ) { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    self?.errorMessage = "Password updated successfully."
-                case .failure(let error):
-                    self?.errorMessage = error.localizedDescription
+        guard let user = Auth.auth().currentUser,
+              let email = user.email else {
+            completion(.failure(NSError(domain: "Auth", code: -1)))
+            return
+        }
+
+        let credential = EmailAuthProvider.credential(
+            withEmail: email,
+            password: currentPassword
+        )
+
+        user.reauthenticate(with: credential) { _, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+
+            user.updatePassword(to: newPassword) { error in
+                if let error = error {
+                    completion(.failure(error))
+                } else {
+                    completion(.success(()))
                 }
             }
         }
     }
+
     
     func forgotPassword(email: String) {
         AuthService.shared.sendPasswordReset(email: email) { [weak self] result in
@@ -113,7 +127,21 @@ final class AuthViewModel: ObservableObject {
             }
         }
     }
+    
+    func deleteAccountAndSignOut() {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
 
+        RideService.shared.deleteAccount(userId: uid) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    try? AuthService.shared.signOut()
+                case .failure(let error):
+                    self?.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
 
 
     func signOut() {

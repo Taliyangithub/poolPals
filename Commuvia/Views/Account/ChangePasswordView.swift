@@ -3,55 +3,50 @@ import SwiftUI
 struct ChangePasswordView: View {
 
     @ObservedObject var authViewModel: AuthViewModel
-    @Environment(\.dismiss) private var dismiss
 
     @State private var currentPassword = ""
     @State private var newPassword = ""
-    @State private var confirmPassword = ""
-    @State private var localError: String?
+    @State private var errorMessage: String?
+    @State private var successMessage: String?
 
     var body: some View {
         Form {
+            Section("Change Password") {
+                SecureField("Current Password", text: $currentPassword)
+                SecureField("New Password", text: $newPassword)
 
-            Section(header: Text("Current Password")) {
-                SecureField("Current password", text: $currentPassword)
+                Button("Update Password") {
+                    updatePassword()
+                }
             }
 
-            Section(header: Text("New Password")) {
-                SecureField("New password", text: $newPassword)
-                SecureField("Confirm new password", text: $confirmPassword)
-            }
-
-            if let localError {
-                Text(localError)
+            if let errorMessage {
+                Text(errorMessage)
                     .foregroundColor(.red)
             }
 
-            Button("Update Password") {
-                submit()
+            if let successMessage {
+                Text(successMessage)
+                    .foregroundColor(.green)
             }
-            .disabled(!isValid)
         }
         .navigationTitle("Change Password")
     }
 
-    private var isValid: Bool {
-        !currentPassword.isEmpty &&
-        newPassword.count >= 6 &&
-        newPassword == confirmPassword
-    }
-
-    private func submit() {
-        guard newPassword == confirmPassword else {
-            localError = "Passwords do not match."
-            return
-        }
-
+    private func updatePassword() {
         authViewModel.changePassword(
             currentPassword: currentPassword,
             newPassword: newPassword
-        )
-
-        dismiss()
+        ) { result in
+            switch result {
+            case .success:
+                successMessage = "Password updated successfully"
+                errorMessage = nil
+            case .failure(let error):
+                errorMessage = error.localizedDescription
+                successMessage = nil
+            }
+        }
     }
 }
+

@@ -923,7 +923,6 @@ final class RideService {
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
         let rideRef = db.collection("rides").document(rideId)
-        let requestsRef = rideRef.collection("requests")
 
         db.runTransaction({ transaction, errorPointer in
 
@@ -935,19 +934,7 @@ final class RideService {
                 return nil
             }
 
-            // Count approved riders
-            let approvedQuery = requestsRef
-                .whereField("status", isEqualTo: RideRequestStatus.approved.rawValue)
-
-            let approvedSnap: QuerySnapshot
-            do {
-                approvedSnap = try transaction.getDocuments(approvedQuery)
-            } catch {
-                errorPointer?.pointee = error as NSError
-                return nil
-            }
-
-            let approvedCount = approvedSnap.documents.count
+            let approvedCount = rideSnap.data()?["approvedCount"] as? Int ?? 0
 
             // Validation rule
             guard newSeatsAvailable >= approvedCount else {
