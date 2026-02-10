@@ -9,11 +9,9 @@ import FirebaseFirestore
 
 struct RideChatView: View {
 
-    // Inputs
     let ride: Ride
     let currentUserName: String
 
-    //State
     @StateObject private var viewModel = RideChatViewModel()
     @State private var messageText: String = ""
 
@@ -22,7 +20,6 @@ struct RideChatView: View {
     @State private var showReportConfirmation = false
     @State private var showBlockConfirmation = false
 
-    // Moderation feedback
     @State private var moderationError: String?
     @State private var showModerationAlert = false
 
@@ -30,7 +27,6 @@ struct RideChatView: View {
         Auth.auth().currentUser?.uid
     }
 
-    //Body
     var body: some View {
         VStack {
 
@@ -64,14 +60,9 @@ struct RideChatView: View {
         }
         .navigationTitle("Ride Chat")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            viewModel.startListening(rideId: ride.id)
-        }
-        .onDisappear {
-            viewModel.stopListening()
-        }
+        .onAppear { viewModel.startListening(rideId: ride.id) }
+        .onDisappear { viewModel.stopListening() }
 
-        //Message Actions
         .confirmationDialog(
             "Message Actions",
             isPresented: $showActionSheet,
@@ -88,24 +79,16 @@ struct RideChatView: View {
             Button("Cancel", role: .cancel) { }
         }
 
-        //Report
-        .alert(
-            "Report Message",
-            isPresented: $showReportConfirmation
-        ) {
+        .alert("Report Message", isPresented: $showReportConfirmation) {
             Button("Report", role: .destructive) {
                 reportSelectedMessage()
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This message will be reviewed and appropriate action will be taken within 24 hours.")
+            Text("This will be reviewed and acted upon within 24 hours.")
         }
 
-        // Block
-        .alert(
-            "Block User",
-            isPresented: $showBlockConfirmation
-        ) {
+        .alert("Block User", isPresented: $showBlockConfirmation) {
             Button("Block", role: .destructive) {
                 blockSelectedUser()
             }
@@ -114,18 +97,13 @@ struct RideChatView: View {
             Text("Blocked users will no longer appear in your chat or ride activity.")
         }
 
-        // Moderation Feedback
-        .alert(
-            "Message Not Sent",
-            isPresented: $showModerationAlert
-        ) {
+        .alert("Message Not Sent", isPresented: $showModerationAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(moderationError ?? "")
         }
     }
 
-    // Chat Bubble
     private func chatBubble(for message: RideMessage) -> some View {
         let isCurrentUser = message.senderId == currentUserId
 
@@ -166,7 +144,6 @@ struct RideChatView: View {
         .padding(.vertical, 4)
     }
 
-    //Actions
     private func sendMessage() {
         RideService.shared.sendMessage(
             rideId: ride.id,
@@ -190,8 +167,35 @@ struct RideChatView: View {
             let reporterId = Auth.auth().currentUser?.uid
         else { return }
 
-        Firestore.firestore()
-            .collection("rides")
+        let db = Firestore.firestore()
+
+        // 1) Hide for this user instantly (so it disappears immediately)
+        db.collection("users")
+            .document(reporterId)
+            .collection("hiddenMessages")
+            .document(message.id) // docID = messageId
+            .setData([
+                "rideId": ride.id,
+                "messageId": message.id,
+                "senderId": message.senderId,
+                "reason": "Abusive or objectionable content",
+                "createdAt": FieldValue.serverTimestamp()
+            ], merge: true)
+
+        // 2) Add moderation queue item for 24h action
+        db.collection("moderationQueue").addDocument(data: [
+            "type": "message_report",
+            "rideId": ride.id,
+            "messageId": message.id,
+            "reportedBy": reporterId,
+            "senderId": message.senderId,
+            "reason": "Abusive or objectionable content",
+            "createdAt": FieldValue.serverTimestamp(),
+            "status": "open"
+        ])
+
+        // Optional: keep your per-message audit trail if you want (not required)
+        db.collection("rides")
             .document(ride.id)
             .collection("messages")
             .document(message.id)
@@ -204,17 +208,22 @@ struct RideChatView: View {
             ])
     }
 
+
+
     private func blockSelectedUser() {
         guard let message = selectedMessage else { return }
 
         BlockService.shared.blockUser(
             blockedUserId: message.senderId,
-            reason: "Abusive chat behavior"
+            reason: "Abusive chat behavior",
+            context: [
+                "rideId": ride.id,
+                "messageId": message.id
+            ]
         )
+
 
         // Refresh listener so blocked messages never come back
         viewModel.startListening(rideId: ride.id)
     }
-
-
 }

@@ -13,20 +13,16 @@ final class BlockService {
 
     private init() {}
 
+
     func blockUser(
         blockedUserId: String,
-        reason: String
+        reason: String,
+        context: [String: Any] = [:]
     ) {
-        guard let uid = Auth.auth().currentUser?.uid else {
-            print("Block failed: no authenticated user")
-            return
-        }
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        guard uid != blockedUserId else { return }
 
-        guard uid != blockedUserId else {
-            print("Block failed: cannot block self")
-            return
-        }
-
+        // 1) Write block record (reactive listeners will update UI instantly)
         let blockRef = db
             .collection("users")
             .document(uid)
@@ -34,26 +30,27 @@ final class BlockService {
             .document(blockedUserId)
 
         blockRef.setData([
-            "blockedAt": FieldValue.serverTimestamp()
-        ]) { error in
-            if let error {
-                print(" Block write failed:", error.localizedDescription)
-            } else {
-                print("Blocked user:", blockedUserId)
-            }
-        }
+            "blockedAt": FieldValue.serverTimestamp(),
+            "reason": reason
+        ], merge: true)
 
-        db.collection("blockedReports").addDocument(data: [
+        // 2) Notify developer via moderation queue
+        var reportData: [String: Any] = [
+            "type": "block",
             "reporterId": uid,
             "blockedUserId": blockedUserId,
             "reason": reason,
-            "createdAt": FieldValue.serverTimestamp()
-        ])
+            "createdAt": FieldValue.serverTimestamp(),
+            "status": "open"
+        ]
+
+        context.forEach { reportData[$0.key] = $0.value }
+
+        db.collection("moderationQueue").addDocument(data: reportData)
     }
 
-    func fetchBlockedUsers(
-        completion: @escaping (Set<String>) -> Void
-    ) {
+
+    func fetchBlockedUsers(completion: @escaping (Set<String>) -> Void) {
         guard let uid = Auth.auth().currentUser?.uid else {
             completion([])
             return

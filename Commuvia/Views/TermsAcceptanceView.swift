@@ -15,28 +15,29 @@ struct TermsAcceptanceView: View {
     @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
 
-            Text("Commuvia Community Guidelines")
+            Text("Commuvia Terms & Community Safety")
                 .font(.headline)
 
-            VStack(alignment: .leading, spacing: 8) {
-                guideline("No harassment, hate speech, threats, or abusive behavior")
-                guideline("No sexual or violent content")
-                guideline("No impersonation or spam")
-                guideline("Violations may result in permanent account removal")
-            }
+            Text("""
+Commuvia is a community ride-sharing helper. You must follow these rules:
 
-            Text("Reported content is reviewed and acted upon within 24 hours.")
-                .font(.footnote)
-                .foregroundColor(.secondary)
+• No harassment, hate speech, threats, or abusive behavior
+• No sexual content, violent content, or content encouraging harm
+• No impersonation, scams, or spam
+• Do not share private information (phone numbers, addresses) in chat
+• Violations may result in content removal, ride removal, and permanent account removal
+
+You can report rides or messages, and you can block users at any time.
+Reports and safety issues are reviewed and acted upon within 24 hours.
+""")
+            .font(.footnote)
+            .foregroundColor(.secondary)
 
             Divider()
 
-            Toggle(
-                "I agree to the Terms and Safety Guidelines",
-                isOn: $accepted
-            )
+            Toggle("I agree to the Terms and Safety Guidelines", isOn: $accepted)
 
             if let error {
                 Text(error)
@@ -57,22 +58,10 @@ struct TermsAcceptanceView: View {
             }
         }
         .padding()
-        .frame(maxWidth: 480)
+        .frame(maxWidth: 520)
         .background(.thinMaterial)
         .cornerRadius(14)
     }
-
-    //Helpers
-
-    private func guideline(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text("•")
-            Text(text)
-        }
-        .font(.body)
-    }
-
-    //Save Acceptance
 
     private func saveAcceptance() {
         guard let uid = Auth.auth().currentUser?.uid else { return }
@@ -80,15 +69,19 @@ struct TermsAcceptanceView: View {
         Firestore.firestore()
             .collection("users")
             .document(uid)
-            .updateData([
-                "termsAccepted": true,
-                "termsAcceptedAt": FieldValue.serverTimestamp()
-            ]) { err in
+            .setData(
+                [
+                    "termsAccepted": true,
+                    "termsAcceptedAt": FieldValue.serverTimestamp()
+                ],
+                merge: true
+            ) { err in
                 if let err {
                     error = err.localizedDescription
                 } else {
-                    onAccepted()   // ⬅️ THIS dismisses the overlay
+                    onAccepted()
                 }
             }
     }
+
 }

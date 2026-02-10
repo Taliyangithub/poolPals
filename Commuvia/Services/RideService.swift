@@ -29,44 +29,36 @@ final class RideService {
         startLongitude: Double,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        guard let userId = Auth.auth().currentUser?.uid else {
-            completion(.failure(NSError(domain: "AuthError", code: -1)))
-            return
-        }
-        
-        guard Auth.auth().currentUser?.isEmailVerified == true else {
-            completion(.failure(NSError(
-                domain: "EmailVerification",
-                code: 403,
-                userInfo: [
-                    NSLocalizedDescriptionKey:
-                    "Please verify your email before using ride features."
+        ensureVerifiedAndAcceptedTerms { result in
+            switch result {
+            case .failure(let err):
+                completion(.failure(err))
+
+            case .success(let userId):
+                let data: [String: Any] = [
+                    "ownerId": userId,
+                    "ownerName": ownerName,
+                    "route": route,
+                    "time": Timestamp(date: startDateTime),
+                    "seatsAvailable": max(seatsAvailable, 0),
+                    "carNumber": carNumber,
+                    "carModel": carModel,
+                    "approvedCount": 0,
+                    "startLocationName": startLocationName,
+                    "endLocationName": endLocationName,
+                    "startLatitude": startLatitude,
+                    "startLongitude": startLongitude,
+                    "isHidden": false,
+                    "createdAt": FieldValue.serverTimestamp()
                 ]
-            )))
-            return
-        }
 
-
-        let data: [String: Any] = [
-            "ownerId": userId,
-            "ownerName": ownerName,
-            "route": route,
-            "time": Timestamp(date: startDateTime),
-            "seatsAvailable": max(seatsAvailable, 0),
-            "carNumber": carNumber,
-            "carModel": carModel,
-            "startLocationName": startLocationName,
-            "endLocationName": endLocationName,
-            "startLatitude": startLatitude,
-            "startLongitude": startLongitude
-        ]
-
-        db.collection("rides").addDocument(data: data) { error in
-            error == nil ? completion(.success(())) : completion(.failure(error!))
+                self.db.collection("rides").addDocument(data: data) { error in
+                    error == nil ? completion(.success(())) : completion(.failure(error!))
+                }
+            }
         }
     }
 
-    // Fetch Rides
     func fetchRides(
         completion: @escaping (Result<[Ride], Error>) -> Void
     ) {
@@ -74,13 +66,16 @@ final class RideService {
             .order(by: "time", descending: false)
             .getDocuments { snapshot, error in
 
-                if let error = error {
+                if let error {
                     completion(.failure(error))
                     return
                 }
 
                 let rides: [Ride] = snapshot?.documents.compactMap { doc in
                     let data = doc.data()
+
+                    let isHidden = data["isHidden"] as? Bool ?? false
+                    if isHidden { return nil }
 
                     guard
                         let ownerId = data["ownerId"] as? String,
@@ -94,9 +89,7 @@ final class RideService {
                         let seats = data["seatsAvailable"] as? Int,
                         let carNumber = data["carNumber"] as? String,
                         let carModel = data["carModel"] as? String
-                    else {
-                        return nil
-                    }
+                    else { return nil }
 
                     return Ride(
                         id: doc.documentID,
@@ -114,14 +107,19 @@ final class RideService {
                     )
                 } ?? []
 
-                BlockService.shared.fetchBlockedUsers { blockedIds in
-                    let filtered = rides.filter {
-                        !blockedIds.contains($0.ownerId)
-                    }
-                    completion(.success(filtered))
+                // Reactive safety filters
+                let blocked = SafetyState.shared.blockedUserIds
+                let hiddenRides = SafetyState.shared.hiddenRideIds
+
+                let filtered = rides.filter { ride in
+                    !blocked.contains(ride.ownerId) && !hiddenRides.contains(ride.id)
                 }
+
+                completion(.success(filtered))
             }
     }
+
+
 
     // Fetch Requests (OWNER)
 
@@ -246,19 +244,21 @@ final class RideService {
                 return nil
             }
 
-            // 1. Decrement seat count
+            let approvedCount = rideSnap.data()?["approvedCount"] as? Int ?? 0
+
             transaction.updateData(
-                ["seatsAvailable": seats - 1],
+                [
+                    "seatsAvailable": seats - 1,
+                    "approvedCount": approvedCount + 1
+                ],
                 forDocument: rideRef
             )
 
-            // 2. Approve request
             transaction.updateData(
                 ["status": RideRequestStatus.approved.rawValue],
                 forDocument: requestRef
             )
 
-            // 3. Mark ride as joined for user
             let joinedRideRef = self.db
                 .collection("users")
                 .document(userId)
@@ -269,6 +269,7 @@ final class RideService {
                 ["joinedAt": FieldValue.serverTimestamp()],
                 forDocument: joinedRideRef
             )
+
 
             return nil
 
@@ -281,7 +282,6 @@ final class RideService {
         }
     }
 
-    // Withdraw Request
     func withdrawRequest(
         rideId: String,
         requestId: String,
@@ -305,11 +305,16 @@ final class RideService {
 
             let status = requestSnap.data()?["status"] as? String
             let seats = rideSnap.data()?["seatsAvailable"] as? Int ?? 0
+            let approvedCount = rideSnap.data()?["approvedCount"] as? Int ?? 0
             let userId = requestSnap.data()?["userId"] as? String
 
             if status == RideRequestStatus.approved.rawValue {
+
                 transaction.updateData(
-                    ["seatsAvailable": seats + 1],
+                    [
+                        "seatsAvailable": seats + 1,
+                        "approvedCount": max(approvedCount - 1, 0)
+                    ],
                     forDocument: rideRef
                 )
 
@@ -328,9 +333,14 @@ final class RideService {
             return nil
 
         }) { _, error in
-            error == nil ? completion(.success(())) : completion(.failure(error!))
+            if let error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
         }
     }
+
 
 
 
@@ -342,32 +352,48 @@ final class RideService {
     ) {
         let rideRef = db.collection("rides").document(rideId)
         let requestsRef = rideRef.collection("requests")
+        let usersRef = db.collection("users")
 
-        requestsRef.getDocuments { snapshot, error in
+        requestsRef.getDocuments { [weak self] snapshot, error in
+            guard let self else { return }
+
             if let error = error {
                 completion(.failure(error))
                 return
             }
 
-            let batch = self.db.batch()
-            snapshot?.documents.forEach { batch.deleteDocument($0.reference) }
-            batch.deleteDocument(rideRef)
-            
-            let usersRef = self.db.collection("users")
-            usersRef.getDocuments { usersSnapshot, _ in
+            // Fetch users FIRST, then commit ONE batch that includes joinedRides cleanup
+            usersRef.getDocuments { usersSnapshot, usersError in
+                if let usersError {
+                    completion(.failure(usersError))
+                    return
+                }
+
+                let batch = self.db.batch()
+
+                // Delete requests
+                snapshot?.documents.forEach { batch.deleteDocument($0.reference) }
+
+                // Delete joinedRides references across all users
                 usersSnapshot?.documents.forEach { userDoc in
                     let joinedRideRef = userDoc.reference
                         .collection("joinedRides")
                         .document(rideId)
                     batch.deleteDocument(joinedRideRef)
                 }
-            }
 
-            batch.commit { error in
-                error == nil ? completion(.success(())) : completion(.failure(error!))
+                // Delete ride document
+                batch.deleteDocument(rideRef)
+
+                batch.commit { commitError in
+                    commitError == nil
+                        ? completion(.success(()))
+                        : completion(.failure(commitError!))
+                }
             }
         }
     }
+
     
     // Request to Join Ride (Duplicate Safe)
 
@@ -375,146 +401,120 @@ final class RideService {
         rideId: String,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
-        guard let user = Auth.auth().currentUser else {
-            completion(.failure(NSError(domain: "AuthError", code: -1)))
-            return
-        }
-        
-        guard Auth.auth().currentUser?.isEmailVerified == true else {
-            completion(.failure(NSError(
-                domain: "EmailVerification",
-                code: 403,
-                userInfo: [
-                    NSLocalizedDescriptionKey:
-                    "Please verify your email before using ride features."
-                ]
-            )))
-            return
-        }
+        ensureVerifiedAndAcceptedTerms { result in
+            switch result {
+            case .failure(let err):
+                completion(.failure(err))
 
+            case .success(let userId):
+                let requestsRef = self.db
+                    .collection("rides")
+                    .document(rideId)
+                    .collection("requests")
 
-        let userId = user.uid
-        let requestsRef = db
-            .collection("rides")
-            .document(rideId)
-            .collection("requests")
+                requestsRef
+                    .whereField("userId", isEqualTo: userId)
+                    .getDocuments { snapshot, error in
 
-        requestsRef
-            .whereField("userId", isEqualTo: userId)
-            .getDocuments { snapshot, error in
+                        if let error {
+                            completion(.failure(error))
+                            return
+                        }
 
-                if let error {
-                    completion(.failure(error))
-                    return
-                }
-
-                if let snapshot, !snapshot.documents.isEmpty {
-                    completion(
-                        .failure(
-                            NSError(
+                        if let snapshot, !snapshot.documents.isEmpty {
+                            completion(.failure(NSError(
                                 domain: "RideRequest",
                                 code: 1,
-                                userInfo: [
-                                    NSLocalizedDescriptionKey:
-                                    "You have already requested this ride."
-                                ]
-                            )
-                        )
-                    )
-                    return
-                }
+                                userInfo: [NSLocalizedDescriptionKey: "You have already requested this ride."]
+                            )))
+                            return
+                        }
 
-                AuthService.shared.fetchUserName(userId: userId) { name in
-                    let data: [String: Any] = [
-                        "userId": userId,
-                        "userName": name ?? "Unknown",
-                        "status": RideRequestStatus.pending.rawValue
-                    ]
+                        AuthService.shared.fetchUserName(userId: userId) { name in
+                            let data: [String: Any] = [
+                                "userId": userId,
+                                "userName": name ?? "Unknown",
+                                "status": RideRequestStatus.pending.rawValue,
+                                "createdAt": FieldValue.serverTimestamp()
+                            ]
 
-                    requestsRef.addDocument(data: data) { error in
-                        error == nil
-                            ? completion(.success(()))
-                            : completion(.failure(error!))
+                            requestsRef.addDocument(data: data) { err in
+                                err == nil ? completion(.success(())) : completion(.failure(err!))
+                            }
+                        }
                     }
-                }
             }
+        }
     }
-
-    
-    // Send Message (Ride Chat)
+ 
     func sendMessage(
         rideId: String,
         text: String,
         senderName: String,
         completion: ((Error?) -> Void)? = nil
     ) {
-        guard let userId = Auth.auth().currentUser?.uid else {
-            completion?(NSError(domain: "AuthError", code: -1))
-            return
-        }
+        ensureVerifiedAndAcceptedTerms { result in
+            switch result {
+            case .failure(let err):
+                completion?(err)
 
-        guard !ContentFilter.containsObjectionableContent(text) else {
-            completion?(NSError(
-                domain: "ContentFilter",
-                code: 400,
-                userInfo: [
-                    NSLocalizedDescriptionKey:
-                    "Your message contains inappropriate content and was not sent."
-                ]
-            ))
-            return
-        }
+            case .success(let userId):
 
-        let rideRef = db.collection("rides").document(rideId)
+                guard !ContentFilter.containsObjectionableContent(text) else {
+                    completion?(NSError(
+                        domain: "ContentFilter",
+                        code: 400,
+                        userInfo: [NSLocalizedDescriptionKey: "Your message contains inappropriate content and was not sent."]
+                    ))
+                    return
+                }
 
-        rideRef.getDocument { rideSnap, error in
-            if let error {
-                completion?(error)
-                return
-            }
+                let rideRef = self.db.collection("rides").document(rideId)
 
-            guard
-                let data = rideSnap?.data(),
-                let ownerId = data["ownerId"] as? String
-            else {
-                completion?(NSError(domain: "RideError", code: -1))
-                return
-            }
+                rideRef.getDocument { rideSnap, error in
+                    if let error { completion?(error); return }
 
-            let isOwner = ownerId == userId
-
-            rideRef.collection("requests")
-                .whereField("userId", isEqualTo: userId)
-                .whereField("status", isEqualTo: RideRequestStatus.approved.rawValue)
-                .limit(to: 1)
-                .getDocuments { snapshot, _ in
-
-                    let isApproved = snapshot?.documents.isEmpty == false
-
-                    guard isOwner || isApproved else {
-                        completion?(NSError(
-                            domain: "ChatAccess",
-                            code: 403,
-                            userInfo: [
-                                NSLocalizedDescriptionKey:
-                                "Chat is available only after ride approval."
-                            ]
-                        ))
+                    guard
+                        let data = rideSnap?.data(),
+                        let ownerId = data["ownerId"] as? String
+                    else {
+                        completion?(NSError(domain: "RideError", code: -1))
                         return
                     }
 
-                    rideRef.collection("messages").addDocument(data: [
-                        "senderId": userId,
-                        "senderName": senderName,
-                        "text": text,
-                        "timestamp": FieldValue.serverTimestamp()
-                    ]) { error in
-                        completion?(error)
-                    }
+                    let isOwner = ownerId == userId
+
+                    rideRef.collection("requests")
+                        .whereField("userId", isEqualTo: userId)
+                        .whereField("status", isEqualTo: RideRequestStatus.approved.rawValue)
+                        .limit(to: 1)
+                        .getDocuments { snapshot, _ in
+
+                            let isApproved = snapshot?.documents.isEmpty == false
+
+                            guard isOwner || isApproved else {
+                                completion?(NSError(
+                                    domain: "ChatAccess",
+                                    code: 403,
+                                    userInfo: [NSLocalizedDescriptionKey: "Chat is available only after ride approval."]
+                                ))
+                                return
+                            }
+
+                            rideRef.collection("messages").addDocument(data: [
+                                "senderId": userId,
+                                "senderName": senderName,
+                                "text": text,
+                                "timestamp": FieldValue.serverTimestamp(),
+                                "isHidden": false
+                            ]) { err in
+                                completion?(err)
+                            }
+                        }
                 }
+            }
         }
     }
-
 
     // Fetched joined Rides
     func fetchJoinedRideIds(
@@ -539,14 +539,15 @@ final class RideService {
         to: Date?,
         completion: @escaping ([Ride]) -> Void
     ) {
-
-        //Email verification enforcement
+        // Keep your existing behavior OR switch to ensureVerifiedAndAcceptedTerms
         guard Auth.auth().currentUser?.isEmailVerified == true else {
             completion([])
             return
         }
 
-        var query = db.collection("rides").order(by: "time")
+        var query = db.collection("rides")
+            .whereField("isHidden", isEqualTo: false)
+            .order(by: "time")
 
         if let from {
             query = query.whereField("time", isGreaterThanOrEqualTo: from)
@@ -557,6 +558,9 @@ final class RideService {
         }
 
         query.getDocuments { snapshot, _ in
+            let blocked = SafetyState.shared.blockedUserIds
+            let hiddenRides = SafetyState.shared.hiddenRideIds
+
             let rides = snapshot?.documents.compactMap { doc -> Ride? in
                 let data = doc.data()
 
@@ -573,6 +577,9 @@ final class RideService {
                     let carNumber = data["carNumber"] as? String,
                     let carModel = data["carModel"] as? String
                 else { return nil }
+
+                if blocked.contains(ownerId) { return nil }
+                if hiddenRides.contains(doc.documentID) { return nil }
 
                 return Ride(
                     id: doc.documentID,
@@ -598,6 +605,7 @@ final class RideService {
             )
         }
     }
+
 
     func deleteAccount(
         userId: String,
@@ -698,8 +706,13 @@ final class RideService {
 
             if status == RideRequestStatus.approved.rawValue {
                 let seats = rideSnap.data()?["seatsAvailable"] as? Int ?? 0
+                let approvedCount = rideSnap.data()?["approvedCount"] as? Int ?? 0
+
                 transaction.updateData(
-                    ["seatsAvailable": seats + 1],
+                    [
+                        "seatsAvailable": seats + 1,
+                        "approvedCount": max(approvedCount - 1, 0)
+                    ],
                     forDocument: rideRef
                 )
             }
@@ -723,9 +736,6 @@ final class RideService {
         }
     }
 
-
-    
-    
     
     func reportRide(
         ride: Ride,
@@ -737,22 +747,32 @@ final class RideService {
             return
         }
 
-        let data: [String: Any] = [
+        // 1) Hide for this user instantly
+        db.collection("users")
+            .document(reporterId)
+            .collection("hiddenRides")
+            .document(ride.id)
+            .setData([
+                "rideId": ride.id,
+                "reason": reason,
+                "createdAt": FieldValue.serverTimestamp()
+            ], merge: true)
+
+        // 2) Add to moderation queue for developer action within 24h
+        db.collection("moderationQueue").addDocument(data: [
+            "type": "ride_report",
             "rideId": ride.id,
             "reportedBy": reporterId,
             "rideOwnerId": ride.ownerId,
             "reason": reason,
-            "createdAt": FieldValue.serverTimestamp()
-        ]
-
-        db.collection("reports").addDocument(data: data) { error in
-            if let error = error {
-                completion(.failure(error))
-            } else {
-                completion(.success(()))
-            }
+            "createdAt": FieldValue.serverTimestamp(),
+            "status": "open"
+        ]) { err in
+            if let err { completion(.failure(err)) }
+            else { completion(.success(())) }
         }
     }
+
 
     // Remove user from ride (used by rider OR owner)
     func removeUserFromRide(
@@ -778,12 +798,17 @@ final class RideService {
 
             let status = requestSnap.data()?["status"] as? String
             let seats = rideSnap.data()?["seatsAvailable"] as? Int ?? 0
+            let approvedCount = rideSnap.data()?["approvedCount"] as? Int ?? 0
             let userId = requestSnap.data()?["userId"] as? String
 
-            // Restore seat ONLY if approved
+            // Restore seat ONLY if approved + decrement approvedCount
             if status == RideRequestStatus.approved.rawValue {
+
                 transaction.updateData(
-                    ["seatsAvailable": seats + 1],
+                    [
+                        "seatsAvailable": seats + 1,
+                        "approvedCount": max(approvedCount - 1, 0)
+                    ],
                     forDocument: rideRef
                 )
 
@@ -804,9 +829,11 @@ final class RideService {
             return nil
 
         }) { _, error in
-            error == nil
-                ? completion(.success(()))
-                : completion(.failure(error!))
+            if let error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
         }
     }
 
@@ -815,73 +842,84 @@ final class RideService {
         userId: String,
         completion: @escaping ([PendingRideRequest]) -> Void
     ) {
-        db.collection("rides").getDocuments { snapshot, _ in
-            guard let rideDocs = snapshot?.documents else {
-                completion([])
-                return
-            }
+        db.collection("rides")
+            .whereField("isHidden", isEqualTo: false)
+            .getDocuments { snapshot, _ in
 
-            let group = DispatchGroup()
-            var results: [PendingRideRequest] = []
+                guard let rideDocs = snapshot?.documents else {
+                    completion([])
+                    return
+                }
 
-            for rideDoc in rideDocs {
-                let rideId = rideDoc.documentID
-                let rideData = rideDoc.data()
+                let blocked = SafetyState.shared.blockedUserIds
+                let hiddenRides = SafetyState.shared.hiddenRideIds
 
-                guard
-                    let ownerId = rideData["ownerId"] as? String,
-                    let ownerName = rideData["ownerName"] as? String,
-                    let route = rideData["route"] as? String,
-                    let startLocationName = rideData["startLocationName"] as? String,
-                    let endLocationName = rideData["endLocationName"] as? String,
-                    let startLatitude = rideData["startLatitude"] as? Double,
-                    let startLongitude = rideData["startLongitude"] as? Double,
-                    let startDateTime = (rideData["time"] as? Timestamp)?.dateValue(),
-                    let seats = rideData["seatsAvailable"] as? Int,
-                    let carNumber = rideData["carNumber"] as? String,
-                    let carModel = rideData["carModel"] as? String
-                else { continue }
+                let group = DispatchGroup()
+                var results: [PendingRideRequest] = []
 
-                let ride = Ride(
-                    id: rideId,
-                    ownerId: ownerId,
-                    ownerName: ownerName,
-                    route: route,
-                    startLocationName: startLocationName,
-                    endLocationName: endLocationName,
-                    startLatitude: startLatitude,
-                    startLongitude: startLongitude,
-                    startDateTime: startDateTime,
-                    seatsAvailable: seats,
-                    carNumber: carNumber,
-                    carModel: carModel
-                )
+                for rideDoc in rideDocs {
+                    let rideId = rideDoc.documentID
+                    if hiddenRides.contains(rideId) { continue }
 
-                group.enter()
-                rideDoc.reference
-                    .collection("requests")
-                    .whereField("userId", isEqualTo: userId)
-                    .whereField("status", isEqualTo: RideRequestStatus.pending.rawValue)
-                    .getDocuments { reqSnapshot, _ in
+                    let rideData = rideDoc.data()
 
-                        if let doc = reqSnapshot?.documents.first {
-                            results.append(
-                                PendingRideRequest(
-                                    id: doc.documentID,
-                                    rideId: rideId,
-                                    ride: ride
+                    guard
+                        let ownerId = rideData["ownerId"] as? String,
+                        let ownerName = rideData["ownerName"] as? String,
+                        let route = rideData["route"] as? String,
+                        let startLocationName = rideData["startLocationName"] as? String,
+                        let endLocationName = rideData["endLocationName"] as? String,
+                        let startLatitude = rideData["startLatitude"] as? Double,
+                        let startLongitude = rideData["startLongitude"] as? Double,
+                        let startDateTime = (rideData["time"] as? Timestamp)?.dateValue(),
+                        let seats = rideData["seatsAvailable"] as? Int,
+                        let carNumber = rideData["carNumber"] as? String,
+                        let carModel = rideData["carModel"] as? String
+                    else { continue }
+
+                    if blocked.contains(ownerId) { continue }
+
+                    let ride = Ride(
+                        id: rideId,
+                        ownerId: ownerId,
+                        ownerName: ownerName,
+                        route: route,
+                        startLocationName: startLocationName,
+                        endLocationName: endLocationName,
+                        startLatitude: startLatitude,
+                        startLongitude: startLongitude,
+                        startDateTime: startDateTime,
+                        seatsAvailable: seats,
+                        carNumber: carNumber,
+                        carModel: carModel
+                    )
+
+                    group.enter()
+                    rideDoc.reference
+                        .collection("requests")
+                        .whereField("userId", isEqualTo: userId)
+                        .whereField("status", isEqualTo: RideRequestStatus.pending.rawValue)
+                        .getDocuments { reqSnapshot, _ in
+
+                            if let doc = reqSnapshot?.documents.first {
+                                results.append(
+                                    PendingRideRequest(
+                                        id: doc.documentID,
+                                        rideId: rideId,
+                                        ride: ride
+                                    )
                                 )
-                            )
+                            }
+                            group.leave()
                         }
-                        group.leave()
-                    }
-            }
+                }
 
-            group.notify(queue: .main) {
-                completion(results)
+                group.notify(queue: .main) {
+                    completion(results)
+                }
             }
-        }
     }
+
     
     func hasActivePendingRequests(
         userId: String,
@@ -890,6 +928,7 @@ final class RideService {
         let now = Date()
 
         db.collection("rides")
+            .whereField("isHidden", isEqualTo: false)
             .whereField("time", isGreaterThan: now)
             .getDocuments { snapshot, _ in
 
@@ -898,12 +937,23 @@ final class RideService {
                     return
                 }
 
+                let blocked = SafetyState.shared.blockedUserIds
+                let hiddenRides = SafetyState.shared.hiddenRideIds
+
                 let group = DispatchGroup()
                 var hasPending = false
 
                 for ride in rides {
-                    group.enter()
+                    // If already found, skip further queries (no group enter)
+                    if hasPending { continue }
 
+                    if hiddenRides.contains(ride.documentID) { continue }
+
+                    let data = ride.data()
+                    let ownerId = data["ownerId"] as? String ?? ""
+                    if blocked.contains(ownerId) { continue }
+
+                    group.enter()
                     ride.reference
                         .collection("requests")
                         .whereField("userId", isEqualTo: userId)
@@ -922,47 +972,56 @@ final class RideService {
                 }
             }
     }
+
+
     
     private func anonymizeUserContent(
         userId: String,
         completion: @escaping () -> Void
     ) {
-        db.collection("rides").getDocuments { snapshot, _ in
-            guard let rideDocs = snapshot?.documents else {
-                completion()
-                return
-            }
+        db.collectionGroup("messages")
+            .whereField("senderId", isEqualTo: userId)
+            .getDocuments { snap, _ in
 
-            let group = DispatchGroup()
+                guard let docs = snap?.documents, !docs.isEmpty else {
+                    completion()
+                    return
+                }
 
-            for rideDoc in rideDocs {
-                let messagesRef = rideDoc.reference.collection("messages")
+                // Batch limit is 500 operations per batch
+                var batches: [WriteBatch] = []
+                var currentBatch = self.db.batch()
+                var opCount = 0
 
-                group.enter()
-                messagesRef
-                    .whereField("senderId", isEqualTo: userId)
-                    .getDocuments { msgSnap, _ in
-
-                        let batch = self.db.batch()
-
-                        msgSnap?.documents.forEach { msgDoc in
-                            batch.updateData([
-                                "senderId": "deleted",
-                                "senderName": "Deleted User"
-                            ], forDocument: msgDoc.reference)
-                        }
-
-                        batch.commit { _ in
-                            group.leave()
-                        }
+                for doc in docs {
+                    if opCount == 500 {
+                        batches.append(currentBatch)
+                        currentBatch = self.db.batch()
+                        opCount = 0
                     }
-            }
 
-            group.notify(queue: .main) {
-                completion()
+                    currentBatch.updateData([
+                        "senderId": "deleted",
+                        "senderName": "Deleted User"
+                    ], forDocument: doc.reference)
+
+                    opCount += 1
+                }
+
+                batches.append(currentBatch)
+
+                let group = DispatchGroup()
+                for batch in batches {
+                    group.enter()
+                    batch.commit { _ in group.leave() }
+                }
+
+                group.notify(queue: .main) {
+                    completion()
+                }
             }
-        }
     }
+
     
     func updateSeatsAvailable(
         rideId: String,
@@ -972,7 +1031,6 @@ final class RideService {
         let rideRef = db.collection("rides").document(rideId)
 
         db.runTransaction({ transaction, errorPointer in
-
             let rideSnap: DocumentSnapshot
             do {
                 rideSnap = try transaction.getDocument(rideRef)
@@ -982,27 +1040,25 @@ final class RideService {
             }
 
             let approvedCount = rideSnap.data()?["approvedCount"] as? Int ?? 0
+            let clamped = max(newSeatsAvailable, 0)
 
-            // Validation rule
-            guard newSeatsAvailable >= approvedCount else {
+            guard clamped >= approvedCount else {
                 errorPointer?.pointee = NSError(
                     domain: "RideError",
                     code: 400,
                     userInfo: [
-                        NSLocalizedDescriptionKey:
-                            "Seats cannot be less than the number of approved riders."
+                        NSLocalizedDescriptionKey: "Seats cannot be less than the number of approved riders."
                     ]
                 )
                 return nil
             }
 
             transaction.updateData(
-                ["seatsAvailable": newSeatsAvailable],
+                ["seatsAvailable": clamped],
                 forDocument: rideRef
             )
 
             return nil
-
         }) { _, error in
             if let error {
                 completion(.failure(error))
@@ -1011,6 +1067,7 @@ final class RideService {
             }
         }
     }
+
 
 
     private func anonymizeUserReports(
@@ -1062,7 +1119,44 @@ final class RideService {
         }
     }
 
-    
+    private func ensureVerifiedAndAcceptedTerms(
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        guard let user = Auth.auth().currentUser else {
+            completion(.failure(NSError(domain: "AuthError", code: -1)))
+            return
+        }
+
+        guard user.isEmailVerified == true else {
+            completion(.failure(NSError(
+                domain: "EmailVerification",
+                code: 403,
+                userInfo: [NSLocalizedDescriptionKey: "Please verify your email before using ride features."]
+            )))
+            return
+        }
+
+        let uid = user.uid
+        db.collection("users").document(uid).getDocument { snap, error in
+            if let error {
+                completion(.failure(error))
+                return
+            }
+
+            let accepted = snap?.data()?["termsAccepted"] as? Bool ?? false
+            guard accepted else {
+                completion(.failure(NSError(
+                    domain: "Terms",
+                    code: 403,
+                    userInfo: [NSLocalizedDescriptionKey: "Please accept Terms & Safety Guidelines to continue."]
+                )))
+                return
+            }
+
+            completion(.success(uid))
+        }
+    }
+
     
 
 }

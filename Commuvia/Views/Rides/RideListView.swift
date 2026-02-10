@@ -83,7 +83,7 @@ struct RideListView: View {
                         }
 
                     } label: {
-                        Image(systemName: "gearshape")
+                        Image(systemName: "ellipsis.circle")
                     }
                 }
             }

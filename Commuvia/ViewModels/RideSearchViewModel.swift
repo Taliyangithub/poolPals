@@ -51,6 +51,7 @@ final class RideSearchViewModel: ObservableObject {
 
         var query: Query = Firestore.firestore()
             .collection("rides")
+            .whereField("isHidden", isEqualTo: false)
             .whereField("time", isGreaterThanOrEqualTo: max(from ?? now, now))
             .order(by: "time")
             .limit(to: pageSize)
@@ -69,6 +70,9 @@ final class RideSearchViewModel: ObservableObject {
 
             self.lastDocument = snapshot.documents.last
             self.hasMoreResults = snapshot.documents.count == self.pageSize
+
+            let blocked = SafetyState.shared.blockedUserIds
+            let hiddenRides = SafetyState.shared.hiddenRideIds
 
             let rides = snapshot.documents.compactMap { doc -> Ride? in
                 let data = doc.data()
@@ -89,8 +93,12 @@ final class RideSearchViewModel: ObservableObject {
                     return nil
                 }
 
-                // Exclude historical rides (safety)
+                // Safety: exclude historical rides
                 if startDateTime < now { return nil }
+
+                // Block + user-hidden (instant removal)
+                if blocked.contains(ownerId) { return nil }
+                if hiddenRides.contains(doc.documentID) { return nil }
 
                 return Ride(
                     id: doc.documentID,
@@ -109,7 +117,6 @@ final class RideSearchViewModel: ObservableObject {
             }
 
             let filtered = rides.filter { ride in
-
                 // End location text match
                 if !endName.isEmpty &&
                     !ride.endLocationName.localizedCaseInsensitiveContains(endName) {
@@ -118,15 +125,8 @@ final class RideSearchViewModel: ObservableObject {
 
                 guard let startCoordinate else { return true }
 
-                let rideStart = CLLocation(
-                    latitude: ride.startLatitude,
-                    longitude: ride.startLongitude
-                )
-
-                let searchStart = CLLocation(
-                    latitude: startCoordinate.latitude,
-                    longitude: startCoordinate.longitude
-                )
+                let rideStart = CLLocation(latitude: ride.startLatitude, longitude: ride.startLongitude)
+                let searchStart = CLLocation(latitude: startCoordinate.latitude, longitude: startCoordinate.longitude)
 
                 let distanceKm = rideStart.distance(from: searchStart) / 1000
 
@@ -143,6 +143,7 @@ final class RideSearchViewModel: ObservableObject {
             }
         }
     }
+
 
     // Dynamic Radius Logic (NO HARDCODED CITIES)
 

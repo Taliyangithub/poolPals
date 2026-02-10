@@ -37,7 +37,6 @@ Please verify your email to continue using the app.
             Divider()
                 .padding(.vertical, 8)
 
-            // 🔴 REQUIRED FOR APP REVIEW
             Button(role: .destructive) {
                 try? Auth.auth().signOut()
             } label: {
