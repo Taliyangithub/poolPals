@@ -352,47 +352,52 @@ final class RideService {
     ) {
         let rideRef = db.collection("rides").document(rideId)
         let requestsRef = rideRef.collection("requests")
-        let usersRef = db.collection("users")
 
         requestsRef.getDocuments { [weak self] snapshot, error in
             guard let self else { return }
 
-            if let error = error {
+            if let error {
                 completion(.failure(error))
                 return
             }
 
-            // Fetch users FIRST, then commit ONE batch that includes joinedRides cleanup
-            usersRef.getDocuments { usersSnapshot, usersError in
-                if let usersError {
-                    completion(.failure(usersError))
-                    return
+            let batch = self.db.batch()
+
+            // Delete requests + collect userIds
+            var joinedUserIds: [String] = []
+
+            snapshot?.documents.forEach { doc in
+                let data = doc.data()
+                if let userId = data["userId"] as? String {
+                    joinedUserIds.append(userId)
                 }
+                batch.deleteDocument(doc.reference)
+            }
 
-                let batch = self.db.batch()
+            // Delete joinedRides ONLY for users who had requests
+            for userId in joinedUserIds {
+                let joinedRideRef = self.db
+                    .collection("users")
+                    .document(userId)
+                    .collection("joinedRides")
+                    .document(rideId)
 
-                // Delete requests
-                snapshot?.documents.forEach { batch.deleteDocument($0.reference) }
+                batch.deleteDocument(joinedRideRef)
+            }
 
-                // Delete joinedRides references across all users
-                usersSnapshot?.documents.forEach { userDoc in
-                    let joinedRideRef = userDoc.reference
-                        .collection("joinedRides")
-                        .document(rideId)
-                    batch.deleteDocument(joinedRideRef)
-                }
+            // Delete ride document
+            batch.deleteDocument(rideRef)
 
-                // Delete ride document
-                batch.deleteDocument(rideRef)
-
-                batch.commit { commitError in
-                    commitError == nil
-                        ? completion(.success(()))
-                        : completion(.failure(commitError!))
+            batch.commit { commitError in
+                if let commitError {
+                    completion(.failure(commitError))
+                } else {
+                    completion(.success(()))
                 }
             }
         }
     }
+
 
     
     // Request to Join Ride (Duplicate Safe)

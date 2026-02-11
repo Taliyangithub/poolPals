@@ -12,7 +12,6 @@ final class RideSearchViewModel: ObservableObject {
     private let pageSize = 20
     private var lastDocument: DocumentSnapshot?
 
-    // Public API
 
     func search(
         startName: String,
@@ -44,17 +43,21 @@ final class RideSearchViewModel: ObservableObject {
         from: Date?,
         to: Date?
     ) {
+        
+        
         guard !isLoading, hasMoreResults else { return }
         isLoading = true
-
-        let now = Date()
 
         var query: Query = Firestore.firestore()
             .collection("rides")
             .whereField("isHidden", isEqualTo: false)
-            .whereField("time", isGreaterThanOrEqualTo: max(from ?? now, now))
             .order(by: "time")
             .limit(to: pageSize)
+
+        // Apply time filters ONLY if user selected them
+        if let from {
+            query = query.whereField("time", isGreaterThanOrEqualTo: from)
+        }
 
         if let to {
             query = query.whereField("time", isLessThanOrEqualTo: to)
@@ -64,8 +67,16 @@ final class RideSearchViewModel: ObservableObject {
             query = query.start(afterDocument: lastDocument)
         }
 
-        query.getDocuments { snapshot, _ in
+        print(query);
+        
+        query.getDocuments { snapshot, error in
             self.isLoading = false
+
+            if let error {
+                print("Search error:", error.localizedDescription)
+                return
+            }
+
             guard let snapshot else { return }
 
             self.lastDocument = snapshot.documents.last
@@ -93,11 +104,10 @@ final class RideSearchViewModel: ObservableObject {
                     return nil
                 }
 
-                // Safety: exclude historical rides
-                if startDateTime < now { return nil }
-
-                // Block + user-hidden (instant removal)
+                // Blocked users filter
                 if blocked.contains(ownerId) { return nil }
+
+                // User-hidden rides filter
                 if hiddenRides.contains(doc.documentID) { return nil }
 
                 return Ride(
@@ -116,26 +126,44 @@ final class RideSearchViewModel: ObservableObject {
                 )
             }
 
+            // Apply client-side filtering
             let filtered = rides.filter { ride in
-                // End location text match
+
+                // Start name match (if user typed manually)
+                if !startName.isEmpty &&
+                    !ride.startLocationName.localizedCaseInsensitiveContains(startName) {
+                    return false
+                }
+
+                // End name match
                 if !endName.isEmpty &&
                     !ride.endLocationName.localizedCaseInsensitiveContains(endName) {
                     return false
                 }
 
-                guard let startCoordinate else { return true }
+                // Distance filtering (only if start coordinate selected)
+                if let startCoordinate {
+                    let rideStart = CLLocation(
+                        latitude: ride.startLatitude,
+                        longitude: ride.startLongitude
+                    )
 
-                let rideStart = CLLocation(latitude: ride.startLatitude, longitude: ride.startLongitude)
-                let searchStart = CLLocation(latitude: startCoordinate.latitude, longitude: startCoordinate.longitude)
+                    let searchStart = CLLocation(
+                        latitude: startCoordinate.latitude,
+                        longitude: startCoordinate.longitude
+                    )
 
-                let distanceKm = rideStart.distance(from: searchStart) / 1000
+                    let distanceKm = rideStart.distance(from: searchStart) / 1000
 
-                let allowedRadius = self.allowedRadiusForRide(
-                    ride: ride,
-                    endCoordinate: endCoordinate
-                )
+                    let allowedRadius = self.allowedRadiusForRide(
+                        ride: ride,
+                        endCoordinate: endCoordinate
+                    )
 
-                return distanceKm <= allowedRadius
+                    return distanceKm <= allowedRadius
+                }
+
+                return true
             }
 
             DispatchQueue.main.async {
@@ -143,6 +171,8 @@ final class RideSearchViewModel: ObservableObject {
             }
         }
     }
+
+
 
 
     // Dynamic Radius Logic (NO HARDCODED CITIES)

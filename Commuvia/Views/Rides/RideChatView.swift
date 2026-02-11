@@ -169,11 +169,14 @@ struct RideChatView: View {
 
         let db = Firestore.firestore()
 
-        // 1) Hide for this user instantly (so it disappears immediately)
+        // 1) Remove from UI immediately
+        viewModel.messages.removeAll { $0.id == message.id }
+
+        // 2) Save hidden message for this user
         db.collection("users")
             .document(reporterId)
             .collection("hiddenMessages")
-            .document(message.id) // docID = messageId
+            .document(message.id)
             .setData([
                 "rideId": ride.id,
                 "messageId": message.id,
@@ -182,7 +185,7 @@ struct RideChatView: View {
                 "createdAt": FieldValue.serverTimestamp()
             ], merge: true)
 
-        // 2) Add moderation queue item for 24h action
+        // 3) Add moderation queue item
         db.collection("moderationQueue").addDocument(data: [
             "type": "message_report",
             "rideId": ride.id,
@@ -194,7 +197,7 @@ struct RideChatView: View {
             "status": "open"
         ])
 
-        // Optional: keep your per-message audit trail if you want (not required)
+        // 4) Optional audit trail
         db.collection("rides")
             .document(ride.id)
             .collection("messages")
@@ -210,11 +213,14 @@ struct RideChatView: View {
 
 
 
+
     private func blockSelectedUser() {
         guard let message = selectedMessage else { return }
 
+        let blockedUserId = message.senderId
+
         BlockService.shared.blockUser(
-            blockedUserId: message.senderId,
+            blockedUserId: blockedUserId,
             reason: "Abusive chat behavior",
             context: [
                 "rideId": ride.id,
@@ -222,8 +228,10 @@ struct RideChatView: View {
             ]
         )
 
+        // Remove all messages from that user immediately
+        viewModel.messages.removeAll { $0.senderId == blockedUserId }
 
-        // Refresh listener so blocked messages never come back
+        // Restart listener to enforce filtering
         viewModel.startListening(rideId: ride.id)
     }
-}
+
